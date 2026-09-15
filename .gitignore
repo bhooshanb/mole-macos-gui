@@ -1,0 +1,8 @@
+.build/
+build/
+*.xcodeproj
+.DS_Store
+# Upstream Mole CLI clone (reference only)
+mole-cli/
+# Generated icon artifacts
+Resources/AppIcon.icns

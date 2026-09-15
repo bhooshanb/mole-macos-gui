@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Mole shells out to `mo`, which itself spawns bash, brew, osascript, and
+      administrator-authenticated helpers. App Sandbox would break every one of
+      those paths, so the app ships non-sandboxed like most system utilities.
+      Safety comes from the CLI's own validation model (dry-run, whitelists,
+      Trash routing, operation log) plus the app's confirmation flows.
+    -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <false/>
+</dict>
+</plist>
