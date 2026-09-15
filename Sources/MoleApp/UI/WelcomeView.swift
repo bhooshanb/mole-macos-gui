@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// First-run experience: detect the CLI, explain capabilities, configure the
-/// menu bar monitor, finish setup.
+/// First-run experience: detect the CLI, install it if missing, explain
+/// capabilities, configure the menu bar monitor, finish setup.
 struct WelcomeView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
@@ -9,6 +9,7 @@ struct WelcomeView: View {
     @State private var step = 0
     @State private var cliStatus: CLICheckResult?
     @State private var menuBarEnabled = MolePreferences.shared.menuBarEnabled
+    @StateObject private var installer = MoleInstaller()
 
     struct CLICheckResult {
         var found: Bool
@@ -42,7 +43,7 @@ struct WelcomeView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(MoleTheme.accent)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(step == 1 && cliStatus == nil)
+                        .disabled(step == 1 && cliStatus?.found != true)
                 } else {
                     Button("Finish") {
                         MolePreferences.shared.menuBarEnabled = menuBarEnabled
@@ -107,36 +108,150 @@ struct WelcomeView: View {
         VStack(spacing: 16) {
             Spacer()
             if let status = cliStatus {
-                Image(systemName: status.found ? "checkmark.seal.fill" : "exclamationmark.octagon")
-                    .font(.system(size: 44))
-                    .foregroundStyle(status.found ? MoleTheme.healthy : MoleTheme.danger)
-                Text(status.found ? "Mole CLI detected" : "Mole CLI not found")
-                    .font(.system(size: 18, weight: .bold))
-                if let version = status.version {
-                    Text(version)
-                        .font(MoleTheme.mono)
-                        .foregroundStyle(MoleTheme.textSecondary)
-                }
-                if let path = status.path {
-                    Text(path)
-                        .font(MoleTheme.mono)
-                        .foregroundStyle(MoleTheme.textTertiary)
-                }
-                if !status.found {
-                    Text("Install with Homebrew:\n  brew install mole\n\nor the install script:\n  curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(MoleTheme.textSecondary)
-                        .multilineTextAlignment(.leading)
+                if status.found {
+                    detectedView(status)
                 } else {
-                    Text("Mole will run the real `mo` commands under the hood. Nothing is deleted without your confirmation, and every cleanup starts as a dry-run preview.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MoleTheme.textSecondary)
-                        .multilineTextAlignment(.center)
+                    missingCLIView
                 }
             } else {
                 ProgressView("Detecting Mole CLI…")
             }
             Spacer()
+        }
+        .padding(.horizontal, 8)
+    }
+
+    @ViewBuilder
+    private func detectedView(_ status: CLICheckResult) -> some View {
+        Image(systemName: "checkmark.seal.fill")
+            .font(.system(size: 44))
+            .foregroundStyle(MoleTheme.healthy)
+        Text("Mole CLI detected")
+            .font(.system(size: 18, weight: .bold))
+        if let version = status.version {
+            Text(version)
+                .font(MoleTheme.mono)
+                .foregroundStyle(MoleTheme.textSecondary)
+        }
+        if let path = status.path {
+            Text(path)
+                .font(MoleTheme.mono)
+                .foregroundStyle(MoleTheme.textTertiary)
+        }
+        Text("Mole will run the real `mo` commands under the hood. Nothing is deleted without your confirmation, and every cleanup starts as a dry-run preview.")
+            .font(.system(size: 12))
+            .foregroundStyle(MoleTheme.textSecondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 400)
+    }
+
+    /// Missing CLI: offer a one-click install with live progress.
+    private var missingCLIView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "arrow.down.circle.dotted")
+                .font(.system(size: 44))
+                .foregroundStyle(MoleTheme.caution)
+            Text("Mole CLI not found")
+                .font(.system(size: 18, weight: .bold))
+
+            switch installer.phase {
+            case .idle:
+                Text("Mole.app needs the Mole command-line engine. Install it now — Homebrew is used when available, otherwise the official install script runs.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(MoleTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 400)
+                Button("Install Mole CLI") { installer.install() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MoleTheme.accent)
+                Text("Prefer manual install? Run `brew install mole` in Terminal.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MoleTheme.textTertiary)
+
+            case .installing:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Installing via \(installer.method?.label ?? "installer")…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MoleTheme.textSecondary)
+                }
+                InstallerOutputLog(lines: installer.outputLines)
+
+            case .failed(let reason):
+                Label("Install failed", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MoleTheme.caution)
+                Text(reason)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(MoleTheme.textTertiary)
+                    .lineLimit(4)
+                    .frame(maxWidth: 420)
+                InstallerOutputLog(lines: installer.outputLines)
+                HStack(spacing: 10) {
+                    Button("Retry") { installer.install() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(MoleTheme.accent)
+                    Button("Check again") { recheckCLI() }
+                        .buttonStyle(.bordered)
+                }
+
+            case .installed:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(MoleTheme.healthy)
+                Text("Mole CLI installed")
+                    .font(.system(size: 15, weight: .semibold))
+                Button("Continue") { advance() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MoleTheme.accent)
+
+            case .checking:
+                ProgressView("Checking…")
+            }
+        }
+    }
+
+    private func recheckCLI() {
+        Task { @MainActor in
+            let client = MoleClient()
+            do {
+                let found = try client.locate()
+                let version = await client.version(of: found)
+                cliStatus = CLICheckResult(found: true, version: version, path: found.url.path)
+                installer.recheck()
+            } catch {
+                cliStatus = CLICheckResult(found: false, version: nil, path: nil)
+            }
+        }
+    }
+
+    /// Live installer output log with auto-scroll.
+    struct InstallerOutputLog: View {
+        let lines: [MoleInstaller.ProgressLine]
+
+        var body: some View {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(lines) { line in
+                            Text(line.text)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(MoleTheme.textSecondary)
+                                .textSelection(.enabled)
+                                .id(line.id)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 130)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.25)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(MoleTheme.border))
+                .onChange(of: lines.count) { _, _ in
+                    if let last = lines.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+                .accessibilityLabel("Installer output log")
+            }
         }
     }
 
@@ -162,16 +277,7 @@ struct WelcomeView: View {
     private func advance() {
         if step == 0 {
             step = 1
-            let client = MoleClient()
-            Task { @MainActor in
-                do {
-                    let found = try client.locate()
-                    let version = await client.version(of: found)
-                    cliStatus = CLICheckResult(found: true, version: version, path: found.url.path)
-                } catch {
-                    cliStatus = CLICheckResult(found: false, version: nil, path: nil)
-                }
-            }
+            recheckCLI()
         } else {
             step += 1
         }
