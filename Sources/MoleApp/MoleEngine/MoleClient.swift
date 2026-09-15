@@ -5,12 +5,20 @@ import Foundation
 /// invents deletion logic of its own.
 struct MoleClient: Sendable {
     let runner: ProcessRunning
-    let locator: MoleLocator
+    var locator: MoleLocator
 
     init(runner: ProcessRunning = FoundationProcessRunner(),
          locator: MoleLocator = MoleLocator()) {
         self.runner = runner
         self.locator = locator
+    }
+
+    /// Current locator reflecting the user's CLI path override from Settings.
+    var effectiveLocator: MoleLocator {
+        var copy = locator
+        let override = MolePreferences.shared.cliPathOverride
+        copy.customPath = override.isEmpty ? nil : override
+        return copy
     }
 
     enum MoleClientError: Error, Equatable {
@@ -22,7 +30,7 @@ struct MoleClient: Sendable {
     // MARK: - Discovery
 
     func locate() throws -> MoleLocatorResult {
-        guard let found = locator.locate() else { throw MoleClientError.cliNotFound }
+        guard let found = effectiveLocator.locate() else { throw MoleClientError.cliNotFound }
         return found
     }
 
@@ -246,12 +254,19 @@ struct MoleClient: Sendable {
     // Mole delegates cask updates to Homebrew; surface the same source of truth.
 
     /// Casks with available updates via `brew outdated --cask --json=v2`.
+    /// HOMEBREW_NO_AUTO_UPDATE keeps brew from refreshing its whole catalog
+    /// (the classic multi-minute hang inside GUI apps).
     func outdatedCasks() async throws -> [HomebrewCaskUpdate] {
         guard let brew = Self.findBrew() else { return [] }
-        let result = try await runner.run(brew, arguments: ["outdated", "--cask", "--json=v2"], timeout: 120)
-        guard result.succeeded else { return [] }
+        let result = try await runner.run(
+            brew, arguments: ["outdated", "--cask", "--json=v2"],
+            workingDirectory: nil, timeout: 120,
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"])
+        guard result.succeeded else {
+            throw MoleClientError.invalidOutput(stderrSummary(result))
+        }
         guard let report = try? MoleJSON.decode(HomebrewOutdatedReport.self, from: result.outputData) else {
-            return []
+            throw MoleClientError.invalidOutput("brew outdated returned unparseable JSON")
         }
         return report.casks ?? []
     }
@@ -259,7 +274,10 @@ struct MoleClient: Sendable {
     /// All installed casks (name + version) for context in the Updates pane.
     func installedCasks() async throws -> [String] {
         guard let brew = Self.findBrew() else { return [] }
-        let result = try await runner.run(brew, arguments: ["list", "--cask"], timeout: 60)
+        let result = try await runner.run(
+            brew, arguments: ["list", "--cask"],
+            workingDirectory: nil, timeout: 60,
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"])
         guard result.succeeded else { return [] }
         return result.stdout
             .split(separator: "\n")

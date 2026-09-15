@@ -88,7 +88,9 @@ final class AnalyzeViewModel: ObservableObject {
 
     func loadOverviewIfNeeded() {
         guard phase == .idle, nodes.isEmpty else { return }
-        scan(path: nil)
+        // Honor the Settings → Analyze default location when set.
+        let preferred = MolePreferences.shared.analyzeDefaultPath
+        scan(path: preferred.isEmpty ? nil : preferred)
     }
 
     /// Scan via `mo analyze --json [path]`. Nil path = machine overview.

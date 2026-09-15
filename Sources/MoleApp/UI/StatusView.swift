@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StatusView: View {
     @ObservedObject var viewModel: StatusViewModel
+    @ObservedObject private var prefs = MolePreferences.shared
 
     var body: some View {
         ScrollView {
@@ -45,6 +46,13 @@ struct StatusView: View {
         }
         .background(MoleTheme.background)
         .accessibilityLabel("Status dashboard")
+        // Apply interval / process-monitoring changes to the live stream.
+        .onChange(of: prefs.statusWatchInterval) { _, _ in
+            viewModel.restartMonitoring()
+        }
+        .onChange(of: prefs.statusProcessMonitoring) { _, _ in
+            viewModel.restartMonitoring()
+        }
     }
 
     // MARK: Header

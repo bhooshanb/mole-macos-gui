@@ -4,6 +4,8 @@ struct SettingsView: View {
     @ObservedObject private var prefs = MolePreferences.shared
     @State private var whitelist: [String] = []
     @State private var newRule = ""
+    @State private var cliVersion: String? = nil
+    @State private var cliVersionFailed = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -31,7 +33,10 @@ struct SettingsView: View {
         }
         .frame(width: 560, height: 480)
         .background(MoleTheme.panel)
-        .onAppear { whitelist = MoleClient().readWhitelist() }
+        .onAppear {
+            whitelist = MoleClient().readWhitelist()
+            fetchCLIVersion()
+        }
         .accessibilityLabel("Settings")
     }
 
@@ -143,19 +148,56 @@ struct SettingsView: View {
                     .foregroundStyle(MoleTheme.danger)
             }
             Section("CLI version") {
-                Text(cliVersionPlaceholder)
-                    .font(MoleTheme.mono)
-                    .foregroundStyle(MoleTheme.textSecondary)
+                if let cliVersion {
+                    Text(cliVersion)
+                        .font(MoleTheme.mono)
+                        .foregroundStyle(MoleTheme.textSecondary)
+                } else if cliVersionFailed {
+                    Label("Mole CLI not found — check the path override or install it via onboarding.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MoleTheme.caution)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
         }
         .padding(16)
     }
 
-    @State private var cliVersionPlaceholder = "checking…"
+    private func fetchCLIVersion() {
+        let client = MoleClient()
+        Task { @MainActor in
+            do {
+                let found = try client.locate()
+                cliVersion = await client.version(of: found) ?? "version unavailable"
+                cliVersionFailed = false
+            } catch {
+                cliVersion = nil
+                cliVersionFailed = true
+            }
+        }
+    }
 
     private func openLogs() {
-        let logDir = NSString(string: "~/Library/Logs/MoleApp").expandingTildeInPath
-        NSWorkspace.shared.open(URL(fileURLWithPath: logDir))
+        let fm = FileManager.default
+        let appLogDir = NSString(string: "~/Library/Logs/MoleApp").expandingTildeInPath
+        // Ensure the directory exists — NSWorkspace.open no-ops on missing paths.
+        try? fm.createDirectory(atPath: appLogDir, withIntermediateDirectories: true)
+        // Seed a file so there's something to see on first open.
+        let appLog = appLogDir + "/app.log"
+        if !fm.fileExists(atPath: appLog) {
+            let stamp = ISO8601DateFormatter().string(from: Date())
+            try? "[\(stamp)] Log created. Enable Debug logging to record app activity.\n"
+                .write(toFile: appLog, atomically: true, encoding: .utf8)
+        }
+        if NSWorkspace.shared.open(URL(fileURLWithPath: appLogDir)) { return }
+        // Fall back to Mole's own operation log.
+        let moleLog = NSString(string: "~/Library/Logs/mole/operations.log").expandingTildeInPath
+        if fm.fileExists(atPath: moleLog) {
+            NSWorkspace.shared.open(URL(fileURLWithPath: moleLog))
+        }
     }
 
     private func resetPreferences() {

@@ -118,7 +118,11 @@ struct ContentView: View {
         .background(MoleTheme.background)
         .preferredColorScheme(.dark)
         .environmentObject(appModel)
-        .onAppear { appModel.onAppear() }
+        .onAppear {
+            appModel.onAppear()
+            // Install the menu bar monitor at launch (respecting Settings).
+            MenuBarStatusItemController.shared.install(appModel: appModel)
+        }
         .onChange(of: scenePhase) { phase in
             appModel.scenePhaseChanged(phase)
         }

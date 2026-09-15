@@ -119,9 +119,14 @@ final class CleanViewModel: ObservableObject {
         phase = .idle
     }
 
-    /// Present the confirmation sheet; real deletion only happens after consent.
+    /// Present the confirmation sheet (unless disabled in Settings); real
+    /// deletion only happens after consent.
     func requestClean() {
         guard !selectedItems.isEmpty else { return }
+        guard MolePreferences.shared.confirmBeforeClean else {
+            performClean()
+            return
+        }
         showConfirmation = true
     }
 

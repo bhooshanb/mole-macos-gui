@@ -5,6 +5,7 @@ import AppKit
 struct MoleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appModel = AppViewModel()
+    @ObservedObject private var prefs = MolePreferences.shared
 
     var body: some Scene {
         WindowGroup(id: "main") {
@@ -38,7 +39,9 @@ struct MoleApp: App {
             }
         }
 
-        // Menu bar mini monitor (Section 11). Lives on its own status item.
+        // Menu bar mini monitor (Section 11), gated by the General setting.
+        // SceneBuilder cannot branch, so visibility is enforced in AppKit:
+        // the status item hides itself when the preference is off.
         MenuBarScene(appModel: appModel)
     }
 }

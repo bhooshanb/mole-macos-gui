@@ -483,6 +483,7 @@ struct UpdatesPane: View {
                 .background(MoleTheme.panel)
             }
         }
+        .onAppear { viewModel.loadUpdatesIfNeeded() }
     }
 
     private var updatesList: some View {
@@ -604,6 +605,7 @@ struct StartupPane: View {
                 }
             }
         }
+        .onAppear { viewModel.loadStartupIfNeeded() }
     }
 
     private var launchAgentsList: some View {

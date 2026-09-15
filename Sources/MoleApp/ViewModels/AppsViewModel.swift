@@ -77,7 +77,9 @@ final class AppsViewModel: ObservableObject {
         }
     }
 
-    /// Load the real dry-run plan from `mo uninstall <name> --dry-run`.
+    /// Load the real dry-run plan from `mo uninstall <name> --dry-run`, then
+    /// confirm (unless disabled in Settings). The plan is always fetched — it
+    /// is what performs the uninstall through Mole.
     func requestRemove() {
         guard let first = selectedItems.first else { return }
         planApp = first
@@ -88,7 +90,11 @@ final class AppsViewModel: ObservableObject {
                 let fetched = try await client.uninstallPlan(app: first)
                 plan = fetched
                 phase = .loaded
-                showConfirmation = true
+                if MolePreferences.shared.confirmBeforeUninstall {
+                    showConfirmation = true
+                } else {
+                    performUninstall()
+                }
             } catch {
                 phase = .loaded
                 lastError = MoleUserError(kind: .scanFailed(String(describing: error)))

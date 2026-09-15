@@ -1,16 +1,71 @@
 import SwiftUI
+import Combine
 
-/// Menu bar scene hosting the compact Mole monitor.
+/// Menu bar mini monitor. Implemented with a self-managed NSStatusItem so
+/// visibility can be toggled live from Settings (SceneBuilder cannot branch
+/// scenes). The panel content is the same SwiftUI MenuBarPanel.
+@MainActor
+final class MenuBarStatusItemController: ObservableObject {
+    static let shared = MenuBarStatusItemController()
+
+    private var statusItem: NSStatusItem?
+    private var cancellable: AnyCancellable?
+
+    func install(appModel: AppViewModel) {
+        guard statusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "externaldrive.badge.timemachine",
+                                    accessibilityDescription: "Mole monitor")
+        // Respect the current setting immediately at install time.
+        item.isVisible = MolePreferences.shared.menuBarEnabled
+        let popover = NSPopover()
+        popover.contentSize = NSSize(width: 300, height: 420)
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: MenuBarPanel(appModel: appModel))
+        item.button?.target = self
+        item.button?.action = #selector(togglePanel(_:))
+        self.statusItem = item
+        self.popover = popover
+
+        cancellable = MolePreferences.shared.menuBarEnabledPublisher
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                self?.statusItem?.isVisible = enabled
+                if !enabled { self?.popover?.performClose(nil) }
+            }
+    }
+
+    private var popover: NSPopover?
+
+    @objc private func togglePanel(_ sender: Any?) {
+        guard let button = statusItem?.button else { return }
+        if let popover, popover.isShown {
+            popover.performClose(nil)
+        } else if let popover {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.becomeKey()
+        }
+    }
+
+    func remove() {
+        popover?.performClose(nil)
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
+        statusItem = nil
+        cancellable = nil
+    }
+}
+
+/// Menu bar scene hosting the compact Mole monitor. Installation happens in
+/// ContentView's onAppear (a Settings-scene onAppear only fires when the user
+/// opens Settings, which left the icon missing at launch).
 struct MenuBarScene: Scene {
     let appModel: AppViewModel
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarPanel(appModel: appModel)
-        } label: {
-            Image(systemName: "externaldrive.badge.timemachine")
-        }
-        .menuBarExtraStyle(.window)
+        Settings { EmptyView() }
     }
 }
 

@@ -99,7 +99,16 @@ final class StatusViewModel: ObservableObject {
     // MARK: Sample application
 
     private func apply(_ snapshot: MetricsSnapshot) {
-        self.snapshot = snapshot
+        // Process monitoring off = show what the CLI already sent but stop
+        // requesting/emphasizing per-process detail on the next samples.
+        if !MolePreferences.shared.statusProcessMonitoring {
+            var trimmed = snapshot
+            trimmed.topProcesses = nil
+            trimmed.processAlerts = nil
+            self.snapshot = trimmed
+        } else {
+            self.snapshot = snapshot
+        }
 
         // Staleness: honor Mole's process_stale semantics; never fabricate.
         isStale = snapshot.processStale ?? false
