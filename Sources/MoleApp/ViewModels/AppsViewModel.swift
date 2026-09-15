@@ -22,7 +22,7 @@ final class AppsViewModel: ObservableObject {
     @Published var lastError: MoleUserError?
     @Published var expandedApp: String?
 
-    private let client: MoleClient
+    let client: MoleClient
     private var loadTask: Task<Void, Never>?
 
     init(client: MoleClient) {

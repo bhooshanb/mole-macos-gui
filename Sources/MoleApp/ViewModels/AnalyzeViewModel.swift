@@ -49,8 +49,28 @@ final class AnalyzeViewModel: ObservableObject {
         ("Library", "~/Library"),
         ("Applications", "/Applications"),
         ("Downloads", "~/Downloads"),
-        ("Volumes", "/Volumes"),
     ]
+
+    /// Mounted volumes, resolved once per scan session. Each is offered as an
+    /// explicit location because Mole requires explicit paths for external
+    /// volumes; scanning /Volumes as a whole would traverse every disk.
+    @Published var mountedVolumes: [(String, String)] = {
+        let keys = [URLResourceKey.volumeNameKey]
+        let urls = (try? FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: keys,
+            options: [.skipHiddenVolumes])) ?? []
+        var volumes: [(String, String)] = []
+        for url in urls {
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            let name = values?.volumeName ?? url.lastPathComponent
+            // The root disk is already covered by the machine overview.
+            if url.path == "/" || url.standardizedFileURL.path == "/" {
+                continue
+            }
+            volumes.append((name, url.path))
+        }
+        return volumes
+    }()
 
     private let client: MoleClient
     private var scanTask: Task<Void, Never>?
@@ -78,6 +98,7 @@ final class AnalyzeViewModel: ObservableObject {
         scanTask?.cancel()
         phase = .scanning
         lastError = nil
+        selectedNode = nil
         scanTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -105,10 +126,27 @@ final class AnalyzeViewModel: ObservableObject {
             } catch is CancellationError {
                 phase = nodes.isEmpty ? .idle : .loaded
             } catch {
-                lastError = MoleUserError(kind: .scanFailed(String(describing: error)))
-                phase = .failed(String(describing: error))
+                guard !Task.isCancelled else {
+                    phase = nodes.isEmpty ? .idle : .loaded
+                    return
+                }
+                // Surface the CLI's own message (e.g. "failed to scan directory:")
+                let message: String
+                if case MoleClient.MoleClientError.invalidOutput(let detail) = error {
+                    message = detail
+                } else {
+                    message = String(describing: error)
+                }
+                lastError = MoleUserError(kind: .scanFailed(message))
+                phase = .failed(message)
             }
         }
+    }
+
+    /// Cancel an in-flight scan and restore the previous results.
+    func cancelScan() {
+        scanTask?.cancel()
+        phase = nodes.isEmpty ? .idle : .loaded
     }
 
     func drillDown(_ node: AnalyzeNode) {
@@ -160,7 +198,9 @@ final class AnalyzeViewModel: ObservableObject {
                 if let error {
                     self.lastError = MoleUserError(kind: .generic(error.localizedDescription))
                 } else {
-                    self.scan(path: self.currentPath == "~" ? "~" : self.currentPath)
+                    // Re-scan the current location (or overview after an
+                    // overview trash) so sizes reflect the removal.
+                    self.scan(path: self.isOverview ? nil : self.currentPath)
                 }
             }
         }

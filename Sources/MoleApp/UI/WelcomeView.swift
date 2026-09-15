@@ -17,12 +17,20 @@ struct WelcomeView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
-            switch step {
-            case 0: intro
-            case 1: detection
-            default: finish
+        // Step content and the navigation bar live in separate fixed regions
+        // so the buttons never shift when step content changes size (e.g.
+        // when CLI detection text appears).
+        VStack(spacing: 0) {
+            Group {
+                switch step {
+                case 0: intro
+                case 1: detection
+                default: finish
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider().overlay(MoleTheme.border)
 
             HStack {
                 if step > 0 {
@@ -45,8 +53,11 @@ struct WelcomeView: View {
                     .keyboardShortcut(.defaultAction)
                 }
             }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+            .background(MoleTheme.panel.opacity(0.5))
         }
-        .padding(32)
         .frame(width: 520, height: 480)
         .background(
             LinearGradient(colors: [MoleTheme.warmPanel, MoleTheme.panel],
@@ -151,8 +162,8 @@ struct WelcomeView: View {
     private func advance() {
         if step == 0 {
             step = 1
-            Task {
-                let client = MoleClient()
+            let client = MoleClient()
+            Task { @MainActor in
                 do {
                     let found = try client.locate()
                     let version = await client.version(of: found)

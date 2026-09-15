@@ -40,22 +40,27 @@ struct MenuBarPanel: View {
                 }
             }
 
+            // Re-read preferences whenever Wipe bumps the generation.
             cleanWatchSummary
+                .id(model.cleanWatchGeneration)
 
             Divider().overlay(MoleTheme.border)
 
             HStack {
-                Toggle("Monitoring", isOn: $model.enabled)
+                Toggle("Monitoring", isOn: Binding(
+                    get: { model.enabled },
+                    set: { model.setMonitoring($0) }))
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .font(.system(size: 11))
+                    .accessibilityLabel("Toggle status monitoring")
                 Spacer()
                 Button("Wipe") { model.resetHistory() }
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                 Button("Open Mole") {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
+                    // Reopen the hidden main window (close = hide).
+                    MainWindow.activate()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.mini)
@@ -209,7 +214,6 @@ final class MenuBarMonitorModel: ObservableObject {
     }
 
     private let client = MoleClient()
-    private var timer: Timer?
 
     var healthColor: Color {
         switch snapshot?.healthScore ?? 0 {
@@ -219,19 +223,17 @@ final class MenuBarMonitorModel: ObservableObject {
         }
     }
 
+    @Published var cleanWatchGeneration = 0
+
     func start() {
-        refresh()
-        // Low-power: refresh every 5s while the panel is open only.
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refresh()
-            }
+        if enabled {
+            refresh()
+            startPolling()
         }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        stopPolling()
     }
 
     private func refresh() {
@@ -243,11 +245,43 @@ final class MenuBarMonitorModel: ObservableObject {
         }
     }
 
+    /// Wipes the Clean Watch counters and bumps a generation token so every
+    /// observing view re-reads preferences immediately (UserDefaults alone
+    /// would not trigger a re-render).
     func resetHistory() {
         let prefs = MolePreferences.shared
         prefs.cleanWatchTotalBytes = 0
         prefs.cleanWatchSessionCount = 0
         prefs.cleanWatchUninstallCount = 0
         prefs.cleanWatchOptimizeCount = 0
+        cleanWatchGeneration += 1
+    }
+
+    /// Whether the collector should poll. The toggle stops the 5s timer and
+    /// the in-flight snapshot task, not just the preference.
+    private var pollTask: Task<Void, Never>?
+
+    func setMonitoring(_ on: Bool) {
+        enabled = on
+        if on {
+            startPolling()
+        } else {
+            stopPolling()
+        }
+    }
+
+    private func startPolling() {
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                self.refresh()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    private func stopPolling() {
+        pollTask?.cancel()
+        pollTask = nil
     }
 }

@@ -166,20 +166,28 @@ struct MoleClient: Sendable {
     // MARK: - Analyze
 
     /// `mo analyze --json [path]` — the flag must precede the path.
+    /// Tilde paths are expanded because Mole resolves paths literally.
     func analyze(path: String?) async throws -> AnalyzeReport {
         let mo = try locate().url.path
         var arguments = ["analyze", "--json"]
         if let path, !path.isEmpty {
-            arguments.append(path)
+            let expanded = (path as NSString).expandingTildeInPath
+            arguments.append(expanded)
         }
         let result = try await runner.run(mo, arguments: arguments, timeout: 20 * 60)
         guard result.succeeded else {
             throw MoleClientError.invalidOutput(stderrSummary(result))
         }
-        guard let report = try? MoleJSON.decode(AnalyzeReport.self, from: result.outputData) else {
-            throw MoleClientError.invalidOutput("analyze did not return valid JSON")
+        if let report = try? MoleJSON.decode(AnalyzeReport.self, from: result.outputData) {
+            return report
         }
-        return report
+        // Mole's analyze exits 0 even when the scan fails (e.g. missing path),
+        // so a decode failure with stderr text means the scan itself failed.
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stderr.isEmpty {
+            throw MoleClientError.invalidOutput(stderr)
+        }
+        throw MoleClientError.invalidOutput("analyze did not return valid JSON")
     }
 
     // MARK: - Status
@@ -232,6 +240,85 @@ struct MoleClient: Sendable {
             throw MoleClientError.invalidOutput(stderrSummary(result))
         }
         return try MoleJSON.decode(HistoryReport.self, from: result.outputData)
+    }
+
+    // MARK: - Homebrew updates
+    // Mole delegates cask updates to Homebrew; surface the same source of truth.
+
+    /// Casks with available updates via `brew outdated --cask --json=v2`.
+    func outdatedCasks() async throws -> [HomebrewCaskUpdate] {
+        guard let brew = Self.findBrew() else { return [] }
+        let result = try await runner.run(brew, arguments: ["outdated", "--cask", "--json=v2"], timeout: 120)
+        guard result.succeeded else { return [] }
+        guard let report = try? MoleJSON.decode(HomebrewOutdatedReport.self, from: result.outputData) else {
+            return []
+        }
+        return report.casks ?? []
+    }
+
+    /// All installed casks (name + version) for context in the Updates pane.
+    func installedCasks() async throws -> [String] {
+        guard let brew = Self.findBrew() else { return [] }
+        let result = try await runner.run(brew, arguments: ["list", "--cask"], timeout: 60)
+        guard result.succeeded else { return [] }
+        return result.stdout
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// `brew upgrade --cask <name>`; runs Homebrew itself, no reimplementation.
+    func upgradeCask(named name: String) async throws -> ProcessResult {
+        guard let brew = Self.findBrew() else {
+            throw MoleClientError.cliNotFound
+        }
+        return try await runner.run(brew, arguments: ["upgrade", "--cask", name], timeout: 30 * 60)
+    }
+
+    /// Locate the brew executable without shelling out to a login shell.
+    static func findBrew() -> String? {
+        let candidates = [
+            "/opt/homebrew/bin/brew", // Apple Silicon
+            "/usr/local/bin/brew", // Intel
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    // MARK: - Startup (launch agents)
+
+    /// User launch agents: parsed plists from ~/Library/LaunchAgents.
+    static func userLaunchAgents() -> [LaunchAgentInfo] {
+        let dir = NSString(string: "~/Library/LaunchAgents").expandingTildeInPath
+        return launchAgents(inDirectory: dir)
+    }
+
+    /// Third-party system daemons (/Library/LaunchDaemons) are shown read-only
+    /// with a note; they require administrator rights to modify.
+    static func systemLaunchAgents() -> [LaunchAgentInfo] {
+        return launchAgents(inDirectory: "/Library/LaunchAgents")
+    }
+
+    private static func launchAgents(inDirectory dir: String) -> [LaunchAgentInfo] {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
+        return files
+            .filter { $0.hasSuffix(".plist") }
+            .sorted()
+            .compactMap { file -> LaunchAgentInfo? in
+                let path = dir + "/" + file
+                guard let data = fm.contents(atPath: path),
+                      let plist = try? PropertyListSerialization.propertyList(
+                        from: data, options: [], format: nil) as? [String: Any]
+                else {
+                    return LaunchAgentInfo(path: path, label: (file as NSString).deletingPathExtension,
+                                           program: nil, disabled: false)
+                }
+                let label = (plist["Label"] as? String) ?? (file as NSString).deletingPathExtension
+                let program = (plist["Program"] as? String)
+                    ?? ((plist["ProgramArguments"] as? [String])?.first)
+                let disabled = (plist["Disabled"] as? Bool) ?? false
+                return LaunchAgentInfo(path: path, label: label, program: program, disabled: disabled)
+            }
     }
 
     // MARK: - Helpers

@@ -210,6 +210,46 @@ struct AnalyzeFileEntry: Codable, Equatable {
     var size: Int64
 }
 
+// MARK: - Homebrew updates (brew outdated --cask --json=v2)
+// Mole delegates cask updates to Homebrew; the Updates pane reads the same
+// source of truth.
+
+struct HomebrewOutdatedReport: Codable, Equatable {
+    var formulae: [HomebrewFormula]?
+    var casks: [HomebrewCaskUpdate]?
+}
+
+struct HomebrewFormula: Codable, Equatable {
+    var name: String
+    var installedVersions: [String]?
+    var currentVersion: String?
+
+    // With convertFromSnakeCase, "installed_versions" → "installedVersions".
+    enum CodingKeys: String, CodingKey {
+        case name
+        case installedVersions = "installedVersions"
+        case currentVersion = "currentVersion"
+    }
+}
+
+struct HomebrewCaskUpdate: Codable, Equatable, Identifiable {
+    var name: String
+    var installedVersions: [String]?
+    var currentVersion: String?
+    var pinned: Bool?
+    var id: String { name }
+}
+
+// MARK: - Launch agents (user login-time services)
+
+struct LaunchAgentInfo: Identifiable, Equatable {
+    var path: String
+    var label: String
+    var program: String?
+    var disabled: Bool
+    var id: String { path }
+}
+
 // MARK: - History (mo history --json)
 // Mirrors lib/core/history.sh history_render_json exactly.
 

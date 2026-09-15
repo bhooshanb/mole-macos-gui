@@ -23,12 +23,17 @@ struct AnalyzeView: View {
                         VStack(spacing: 14) {
                             ProgressView()
                                 .controlSize(.large)
-                            Text("Scanning \(viewModel.isOverview ? "your Mac" : viewModel.currentPath)…")
+                            Text(viewModel.phase == .scanning
+                                 ? "Scanning \(viewModel.isOverview ? "your Mac" : viewModel.currentPath)…"
+                                 : "Choose a location to analyze.")
                                 .font(.system(size: 13))
                                 .foregroundStyle(MoleTheme.textSecondary)
-                            Button("Cancel") { viewModel.scan(path: viewModel.currentPath) }
-                                .buttonStyle(.bordered)
-                                .opacity(0) // scanning restart is cheap; keep UI simple
+                            if viewModel.phase == .scanning {
+                                Button("Cancel") { viewModel.cancelScan() }
+                                    .buttonStyle(.bordered)
+                                    .keyboardShortcut(.cancelAction)
+                                    .accessibilityLabel("Cancel scan")
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     case .failed(let reason):
@@ -104,7 +109,6 @@ struct AnalyzeSidebar: View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel(text: "Locations")
             ForEach(AnalyzeViewModel.quickLocations, id: \.0) { location in
-                let isVolumes = location.0 == "Volumes"
                 let isActive = location.0 == "Overview" && viewModel.isOverview
                 Button {
                     if location.0 == "Overview" {
@@ -117,14 +121,6 @@ struct AnalyzeSidebar: View {
                         Image(systemName: icon(for: location.0))
                             .frame(width: 16)
                         Text(location.0)
-                        if isVolumes {
-                            Text("explicit")
-                                .font(.system(size: 9, weight: .semibold))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(MoleTheme.infoBlue.opacity(0.16)))
-                                .foregroundStyle(MoleTheme.infoBlue)
-                        }
                         Spacer()
                     }
                     .padding(.horizontal, 10)
@@ -142,6 +138,29 @@ struct AnalyzeSidebar: View {
                 if location.0 == "Overview" {
                     Divider().padding(.vertical, 4)
                 }
+            }
+
+            SectionLabel(text: "Volumes")
+            ForEach(viewModel.mountedVolumes, id: \.0) { volume in
+                Button {
+                    // Each volume is scanned explicitly, matching Mole's rule
+                    // that external-volume analysis is always an explicit path.
+                    viewModel.scan(path: volume.1)
+                } label: {
+                    HStack {
+                        Image(systemName: "externaldrive")
+                            .frame(width: 16)
+                        Text(volume.0)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MoleTheme.textSecondary)
+                .accessibilityLabel("Analyze volume \(volume.0)")
             }
 
             Divider().padding(.vertical, 6)
@@ -199,9 +218,16 @@ struct AnalyzeTreemapView: View {
             let tiles = TreemapLayout.squarify(
                 entries: viewModel.sortedNodes.filter { $0.size > 0 },
                 in: CGRect(origin: .zero, size: geo.size))
+                // Skip slivers too small to be readable or clickable.
+                .filter { $0.rect.width >= 10 && $0.rect.height >= 10 }
             ZStack {
                 ForEach(tiles) { tile in
                     TreemapTile(tile: tile, viewModel: viewModel)
+                        // Position each tile by its computed rect; without this
+                        // every tile renders full-size and centered.
+                        .frame(width: max(0, tile.rect.width - 3),
+                               height: max(0, tile.rect.height - 3))
+                        .position(x: tile.rect.midX, y: tile.rect.midY)
                 }
             }
         }
@@ -231,7 +257,9 @@ struct TreemapTile: View {
                 Text(tile.node.name)
                     .font(.system(size: min(13, max(9, tile.rect.height / 5)), weight: .semibold))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .foregroundStyle(MoleTheme.textPrimary)
+                    .padding(.horizontal, 4)
             }
             if tile.rect.height > 52 {
                 Text(bytesText(tile.node.size))
@@ -253,8 +281,8 @@ struct TreemapTile: View {
                         ? MoleTheme.borderStrong : MoleTheme.border,
                     lineWidth: viewModel.selectedNode?.path == tile.node.path ? 2 : 1)
         )
-        .padding(2)
-        .contentShape(Rectangle())
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture(count: 2) { viewModel.drillDown(tile.node) }
         .onTapGesture { viewModel.selectedNode = tile.node }
         .accessibilityElement(children: .ignore)

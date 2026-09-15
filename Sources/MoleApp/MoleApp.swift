@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @main
 struct MoleApp: App {
@@ -6,9 +7,10 @@ struct MoleApp: App {
     @StateObject private var appModel = AppViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView(appModel: appModel)
                 .frame(minWidth: 900, minHeight: 650)
+                .background(MainWindowAccessor())
                 .onReceive(appModel.$showingSettings) { _ in }
         }
         .windowStyle(.automatic)
@@ -46,4 +48,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Keep running so the menu bar monitor stays alive.
         false
     }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Dock-icon click reopens the (hidden) main window.
+        if !flag { MainWindow.activate() }
+        return true
+    }
+}
+
+// MARK: - Hide-on-close main window
+
+/// Holds the main window so it can be re-shown after being hidden, and acts
+/// as its delegate: closing hides the window instead of destroying it, so the
+/// app stays reachable from the menu bar monitor and the Dock icon.
+enum MainWindow {
+    static weak var window: NSWindow?
+
+    static func activate() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+        } else if !NSApp.windows.contains(where: { $0.isVisible && !$0.isSheet }) {
+            // Window not yet tracked (e.g. first launch ordering): fall back to
+            // showing whatever main-ish window exists.
+            NSApp.windows.first { $0.frameAutosaveName.isEmpty == false }?.makeKeyAndOrderFront(nil)
+        }
+    }
+}
+
+struct MainWindowAccessor: NSViewRepresentable {
+    final class Coordinator: NSObject, NSWindowDelegate {
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            MainWindow.window = sender
+            sender.orderOut(nil) // hide, keep the app + window alive
+            return false
+        }
+
+        func windowDidBecomeMain(_ notification: Notification) {
+            MainWindow.window = notification.object as? NSWindow
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                window.delegate = context.coordinator
+                MainWindow.window = window
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

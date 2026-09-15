@@ -508,9 +508,11 @@ struct CleanFailedView: View {
 // MARK: - Mole orb visual
 
 /// The large central animated Mole visual for the Clean screen.
+/// The glow breathes via opacity only — no scaling — so surrounding content
+/// never appears to shift or oscillate.
 struct MoleOrb: View {
     var isPulsing = false
-    @State private var breathing = false
+    @State private var glowUp = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -520,11 +522,11 @@ struct MoleOrb: View {
                     RadialGradient(
                         colors: [MoleTheme.accent.opacity(0.22), .clear],
                         center: .center, startRadius: 10, endRadius: 110))
-                .scaleEffect(breathing ? 1.06 : 0.96)
+                .opacity(glowUp ? 0.9 : 0.55)
 
             Circle()
                 .strokeBorder(MoleTheme.border, lineWidth: 1)
-                .frame(width: 190, height: 190)
+                .padding(10) // adapt to whatever frame the parent provides
 
             VStack(spacing: 12) {
                 MoleSilhouette(color: MoleTheme.accent)
@@ -537,8 +539,8 @@ struct MoleOrb: View {
         }
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
-                breathing = true
+            withAnimation(.easeInOut(duration: isPulsing ? 1.8 : 3.0).repeatForever(autoreverses: true)) {
+                glowUp = true
             }
         }
         .accessibilityHidden(true)

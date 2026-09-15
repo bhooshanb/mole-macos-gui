@@ -2,7 +2,13 @@ import SwiftUI
 
 struct AppsView: View {
     @ObservedObject var viewModel: AppsViewModel
+    @StateObject private var updatesModel: UpdatesStartupViewModel
     @State private var subTab: AppSubTab = .uninstall
+
+    init(viewModel: AppsViewModel) {
+        self.viewModel = viewModel
+        _updatesModel = StateObject(wrappedValue: UpdatesStartupViewModel(client: viewModel.client))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,12 +19,9 @@ struct AppsView: View {
             case .uninstall:
                 UninstallPane(viewModel: viewModel)
             case .updates:
-                PlaceholderPane(
-                    icon: "arrow.triangle.2.circlepath",
-                    title: "Updates",
-                    message: "Mole keeps app updates to package managers it can verify. Homebrew casks appear in the Uninstall list with source “Homebrew”; update them with `brew upgrade`.")
+                UpdatesPane(viewModel: updatesModel)
             case .startup:
-                StartupPane()
+                StartupPane(viewModel: updatesModel)
             }
         }
         .background(MoleTheme.background)
@@ -394,24 +397,326 @@ struct UninstallConfirmationSheet: View {
     }
 }
 
-struct StartupPane: View {
+// MARK: - Updates pane (real Homebrew data)
+
+struct UpdatesPane: View {
+    @ObservedObject var viewModel: UpdatesStartupViewModel
+
     var body: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            Image(systemName: "person.crop.rectangle.stack")
-                .font(.system(size: 40))
-                .foregroundStyle(MoleTheme.textTertiary)
-            Text("Startup Items")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(MoleTheme.textPrimary)
-            Text("Mole audits login items through the Optimize pass (Login Items task). Run Optimize to find broken entries; removal is handled by the CLI.")
-                .font(.system(size: 12))
-                .foregroundStyle(MoleTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-            Spacer()
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("App updates via Homebrew")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                    Text("Mole delegates cask updates to Homebrew, so this list reflects `brew outdated --cask` exactly.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MoleTheme.textTertiary)
+                }
+                Spacer()
+                Button {
+                    viewModel.loadUpdates()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Refresh updates")
+            }
+            .padding(.horizontal, 36)
+            .padding(.vertical, 12)
+
+            switch viewModel.updatesPhase {
+            case .idle, .loading:
+                Spacer()
+                ProgressView("Checking Homebrew for outdated casks…")
+                    .controlSize(.large)
+                Spacer()
+            case .failed(let message):
+                Spacer()
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 32))
+                        .foregroundStyle(MoleTheme.caution)
+                    Text("Could not read Homebrew data")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(message)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(MoleTheme.textTertiary)
+                        .lineLimit(3)
+                    Button("Retry") { viewModel.loadUpdates() }
+                        .buttonStyle(.bordered)
+                }
+                Spacer()
+            case .loaded:
+                if viewModel.brewMissing {
+                    Spacer()
+                    EmptyStateView(
+                        icon: "arrow.triangle.2.circlepath",
+                        title: "Homebrew not installed",
+                        message: "Install Homebrew to see and run cask updates here. Apps installed outside Homebrew update through their own mechanisms.")
+                    Spacer()
+                } else if viewModel.outdatedCasks.isEmpty {
+                    Spacer()
+                    EmptyStateView(
+                        icon: "checkmark.circle.fill",
+                        title: "Everything is up to date",
+                        message: "No outdated Homebrew casks found.")
+                    Spacer()
+                } else {
+                    updatesList
+                }
+            }
+
+            if let result = viewModel.lastUpgradeResult {
+                Divider().overlay(MoleTheme.border)
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(MoleTheme.infoBlue)
+                    Text(result)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MoleTheme.textSecondary)
+                        .lineLimit(2)
+                    Spacer()
+                }
+                .padding(.horizontal, 36)
+                .padding(.vertical, 10)
+                .background(MoleTheme.panel)
+            }
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private var updatesList: some View {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(viewModel.outdatedCasks) { cask in
+                    UpdateRow(cask: cask, viewModel: viewModel)
+                }
+            }
+            .padding(.horizontal, 36)
+            .padding(.bottom, 16)
+        }
+    }
+}
+
+struct UpdateRow: View {
+    let cask: HomebrewCaskUpdate
+    @ObservedObject var viewModel: UpdatesStartupViewModel
+
+    var body: some View {
+        MoleCard(padding: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "app.badge.arrow.down")
+                    .font(.system(size: 15))
+                    .foregroundStyle(MoleTheme.accent)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(cask.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                    HStack(spacing: 4) {
+                        Text(cask.installedVersions?.last ?? "?")
+                            .strikethrough()
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9))
+                        Text(cask.currentVersion ?? "latest")
+                            .foregroundStyle(MoleTheme.healthy)
+                    }
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(MoleTheme.textTertiary)
+                }
+                Spacer()
+                if cask.pinned == true {
+                    Text("pinned")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(MoleTheme.caution.opacity(0.16)))
+                        .foregroundStyle(MoleTheme.caution)
+                }
+                if viewModel.upgradingCask == cask.name {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("Update") { viewModel.upgrade(cask) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(MoleTheme.accent)
+                        .accessibilityLabel("Update \(cask.name) to \(cask.currentVersion ?? "latest")")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+    }
+}
+
+// MARK: - Startup pane (real launch agents + login items)
+
+struct StartupPane: View {
+    @ObservedObject var viewModel: UpdatesStartupViewModel
+    @State private var showingSystemAgents = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Startup items")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                    Text("Launch agents run at login. Mole audits these in the Optimize pass; removal stays with the CLI and System Settings.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MoleTheme.textTertiary)
+                }
+                Spacer()
+                Picker("Show", selection: $showingSystemAgents) {
+                    Text("Login-time agents").tag(false)
+                    Text("Login items").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 260)
+                Button {
+                    viewModel.loadStartup()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Refresh startup items")
+            }
+            .padding(.horizontal, 36)
+            .padding(.vertical, 12)
+
+            switch viewModel.startupPhase {
+            case .idle, .loading:
+                Spacer()
+                ProgressView("Reading startup configuration…")
+                    .controlSize(.large)
+                Spacer()
+            case .failed(let message):
+                Spacer()
+                Text(message)
+                    .foregroundStyle(MoleTheme.textSecondary)
+                Spacer()
+            case .loaded:
+                if showingSystemAgents {
+                    loginItemsList
+                } else {
+                    launchAgentsList
+                }
+            }
+        }
+    }
+
+    private var launchAgentsList: some View {
+        Group {
+            if viewModel.userAgents.isEmpty {
+                Spacer()
+                EmptyStateView(
+                    icon: "person.crop.rectangle.stack",
+                    title: "No user launch agents",
+                    message: "Nothing is registered in ~/Library/LaunchAgents.")
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(viewModel.userAgents) { agent in
+                            LaunchAgentRow(agent: agent)
+                        }
+                    }
+                    .padding(.horizontal, 36)
+                    .padding(.bottom, 16)
+                }
+            }
+        }
+    }
+
+    private var loginItemsList: some View {
+        Group {
+            if viewModel.loginItemsUnavailable {
+                Spacer()
+                EmptyStateView(
+                    icon: "lock.shield",
+                    title: "Login items unavailable",
+                    message: "macOS denied automation access to System Events. Grant access in System Settings → Privacy & Security → Automation, then refresh.")
+                Spacer()
+            } else if viewModel.loginItems.isEmpty {
+                Spacer()
+                EmptyStateView(
+                    icon: "person.crop.rectangle.stack",
+                    title: "No login items",
+                    message: "No classic login items are registered for your account.")
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(viewModel.loginItems, id: \.self) { item in
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle")
+                                    .foregroundStyle(MoleTheme.accent)
+                                    .frame(width: 30)
+                                Text(item)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(MoleTheme.textPrimary)
+                                Spacer()
+                                Text("Login item")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(MoleTheme.infoBlue.opacity(0.16)))
+                                    .foregroundStyle(MoleTheme.infoBlue)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: MoleTheme.cardRadius, style: .continuous)
+                                    .fill(MoleTheme.card))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: MoleTheme.cardRadius, style: .continuous)
+                                    .strokeBorder(MoleTheme.border, lineWidth: 1))
+                        }
+                    }
+                    .padding(.horizontal, 36)
+                    .padding(.bottom, 16)
+                }
+            }
+        }
+    }
+}
+
+struct LaunchAgentRow: View {
+    let agent: LaunchAgentInfo
+
+    var body: some View {
+        MoleCard(padding: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: agent.disabled ? "pause.circle" : "play.circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(agent.disabled ? MoleTheme.textTertiary : MoleTheme.healthy)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(agent.label)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                    Text(agent.program ?? agent.path)
+                        .font(MoleTheme.mono)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(MoleTheme.textTertiary)
+                }
+                Spacer()
+                if agent.disabled {
+                    Text("disabled")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(MoleTheme.caution.opacity(0.16)))
+                        .foregroundStyle(MoleTheme.caution)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Launch agent \(agent.label)\(agent.disabled ? ", disabled" : "")")
     }
 }
 

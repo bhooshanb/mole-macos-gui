@@ -59,6 +59,15 @@ struct LiveIntegrationTests {
         #expect(report.totalSize >= 0)
     }
 
+    @Test func analyzeExpandsTildePaths() async throws {
+        // Regression: Mole resolves paths literally, so the app must expand
+        // tilde paths before invoking `mo analyze --json`.
+        let home = NSHomeDirectory()
+        let report = try await Self.client().analyze(path: "~")
+        #expect(report.path == home)
+        #expect(report.overview == false)
+    }
+
     @Test func statusWatchStreamEmitsSnapshots() async throws {
         let client = Self.client()
         let stream = try client.statusWatch(interval: "1s")
