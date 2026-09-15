@@ -33,6 +33,8 @@
         <key>NSAllowsArbitraryLoads</key>
         <false/>
     </dict>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Mole reads your login items so the Apps → Startup pane can show what launches when you log in. Nothing is modified without your action.</string>
     <key>NSLocationUsageDescription</key>
     <string>Mole never uses your location.</string>
 </dict>

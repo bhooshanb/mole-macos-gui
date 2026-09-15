@@ -91,10 +91,10 @@ final class CleanViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 stopProgressSimulation()
                 withAnimation(.easeOut(duration: 0.35)) {
-                    summary = result
-                    selectedItems = Set(result.items.filter { !$0.skipped }.map(\.id))
-                    phase = .results
-                    progress = 1
+                    self.summary = result
+                    self.selectedItems = Set(result.items.filter { !$0.skipped }.map(\.id))
+                    self.phase = .results
+                    self.progress = 1
                 }
                 cliAvailable = true
             } catch is CancellationError {
@@ -146,9 +146,9 @@ final class CleanViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 stopProgressSimulation()
                 withAnimation(.easeOut(duration: 0.35)) {
-                    cleanResult = result
-                    phase = .complete
-                    progress = 1
+                    self.cleanResult = result
+                    self.phase = .complete
+                    self.progress = 1
                 }
                 MolePreferences.shared.cleanWatchSessionCount += 1
                 if let bytes = result.totalBytes {

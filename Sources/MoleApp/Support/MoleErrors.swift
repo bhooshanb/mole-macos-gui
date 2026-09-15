@@ -100,7 +100,7 @@ enum MoleLog {
         let line = "[\(stamp)] \(message)\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(line.utf8))
         } else {
             try? Data(line.utf8).write(to: URL(fileURLWithPath: logPath))

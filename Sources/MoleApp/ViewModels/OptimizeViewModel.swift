@@ -48,7 +48,7 @@ final class OptimizeViewModel: ObservableObject {
                 // can show the exact task list before any change happens.
                 let dryRun = try await client.optimizeDryRun()
                 guard !Task.isCancelled else { return }
-                withAnimation { preview = dryRun }
+                withAnimation { self.preview = dryRun }
                 phase = .previewed
             } catch is CancellationError {
                 phase = .idle
@@ -68,9 +68,9 @@ final class OptimizeViewModel: ObservableObject {
                 let summary = try await client.optimize()
                 guard !Task.isCancelled else { return }
                 withAnimation {
-                    result = summary
-                    completedTaskNames = Set(summary.tasks.map(\.name))
-                    phase = .complete
+                    self.result = summary
+                    self.completedTaskNames = Set(summary.tasks.map(\.name))
+                    self.phase = .complete
                 }
                 MolePreferences.shared.cleanWatchOptimizeCount += 1
             } catch is CancellationError {

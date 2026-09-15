@@ -56,9 +56,9 @@ final class AnalyzeViewModel: ObservableObject {
     /// volumes; scanning /Volumes as a whole would traverse every disk.
     @Published var mountedVolumes: [(String, String)] = {
         let keys = [URLResourceKey.volumeNameKey]
-        let urls = (try? FileManager.default.mountedVolumeURLs(
+        let urls = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: keys,
-            options: [.skipHiddenVolumes])) ?? []
+            options: [.skipHiddenVolumes]) ?? []
         var volumes: [(String, String)] = []
         for url in urls {
             let values = try? url.resourceValues(forKeys: Set(keys))
@@ -115,15 +115,15 @@ final class AnalyzeViewModel: ObservableObject {
                         lastAccess: entry.lastAccess, parentPath: parent)
                 }
                 withAnimation(.easeOut(duration: 0.25)) {
-                    nodes = mapped
-                    largeFiles = report.largeFiles ?? []
-                    totalSize = report.totalSize
-                    totalFiles = report.totalFiles ?? 0
-                    currentPath = report.path
-                    isOverview = report.overview
-                    updateBreadcrumbs(for: report)
-                    selectedNode = nil
-                    phase = .loaded
+                    self.nodes = mapped
+                    self.largeFiles = report.largeFiles ?? []
+                    self.totalSize = report.totalSize
+                    self.totalFiles = report.totalFiles ?? 0
+                    self.currentPath = report.path
+                    self.isOverview = report.overview
+                    self.updateBreadcrumbs(for: report)
+                    self.selectedNode = nil
+                    self.phase = .loaded
                 }
             } catch is CancellationError {
                 phase = nodes.isEmpty ? .idle : .loaded

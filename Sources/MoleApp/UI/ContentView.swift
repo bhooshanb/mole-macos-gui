@@ -123,7 +123,7 @@ struct ContentView: View {
             // Install the menu bar monitor at launch (respecting Settings).
             MenuBarStatusItemController.shared.install(appModel: appModel)
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase) { _, phase in
             appModel.scenePhaseChanged(phase)
         }
         .sheet(isPresented: $appModel.showingHistory) {

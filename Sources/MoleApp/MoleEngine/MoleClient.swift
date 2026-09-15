@@ -286,11 +286,28 @@ struct MoleClient: Sendable {
     }
 
     /// `brew upgrade --cask <name>`; runs Homebrew itself, no reimplementation.
+    /// HOMEBREW_NO_AUTO_UPDATE avoids the long catalog refresh that otherwise
+    /// stalls GUI-invoked brew runs.
     func upgradeCask(named name: String) async throws -> ProcessResult {
         guard let brew = Self.findBrew() else {
             throw MoleClientError.cliNotFound
         }
-        return try await runner.run(brew, arguments: ["upgrade", "--cask", name], timeout: 30 * 60)
+        return try await runner.run(
+            brew, arguments: ["upgrade", "--cask", name],
+            workingDirectory: nil, timeout: 30 * 60,
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"])
+    }
+
+    /// Streaming variant: yields brew's stdout/stderr lines live while the
+    /// upgrade runs, so the UI can show the real CLI output. Returns the exit
+    /// status; environment mirrors upgradeCask.
+    func upgradeCaskStream(named name: String) throws -> AsyncThrowingStream<String, Error> {
+        guard let brew = Self.findBrew() else {
+            throw MoleClientError.cliNotFound
+        }
+        return runner.streamLines(
+            brew, arguments: ["upgrade", "--cask", name],
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"])
     }
 
     /// Locate the brew executable without shelling out to a login shell.

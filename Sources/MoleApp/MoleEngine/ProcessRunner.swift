@@ -157,8 +157,8 @@ struct FoundationProcessRunner: ProcessRunning {
 
         if Task.isCancelled {
             if process.isRunning { process.terminate() }
-            _ = try? await stdoutTask.value
-            _ = try? await stderrTask.value
+            _ = await stdoutTask.value
+            _ = await stderrTask.value
             throw ProcessError.cancelled
         }
 
@@ -169,13 +169,13 @@ struct FoundationProcessRunner: ProcessRunning {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            _ = try? await stdoutTask.value
-            _ = try? await stderrTask.value
+            _ = await stdoutTask.value
+            _ = await stderrTask.value
             throw ProcessError.timedOut
         }
 
-        let stdout = (try? await stdoutTask.value) ?? Data()
-        let stderr = (try? await stderrTask.value) ?? Data()
+        let stdout = await stdoutTask.value
+        let stderr = await stderrTask.value
 
         return ProcessResult(
             exitCode: process.terminationStatus,
@@ -247,13 +247,8 @@ struct FoundationProcessRunner: ProcessRunning {
 
             let reader = LineReader(handle: pipe.fileHandleForReading)
             let readTask = Task {
-                do {
-                    for try await line in reader.lines() {
-                        continuation.yield(line)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+                for await line in reader.lines() {
+                    continuation.yield(line)
                 }
             }
 

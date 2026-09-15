@@ -250,6 +250,13 @@ struct LaunchAgentInfo: Identifiable, Equatable {
     var id: String { path }
 }
 
+/// A classic login item as reported by System Events.
+struct LoginItemInfo: Identifiable, Equatable {
+    var name: String
+    var path: String
+    var id: String { name + path }
+}
+
 // MARK: - History (mo history --json)
 // Mirrors lib/core/history.sh history_render_json exactly.
 

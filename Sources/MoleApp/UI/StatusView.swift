@@ -451,11 +451,11 @@ struct StatusView: View {
                 MetricRow(label: "Zombies", value: viewModel.zombieText)
                 ForEach(viewModel.snapshot?.zombieParents ?? [], id: \.pid) { parent in
                     HStack {
-                        Text(parent.name ?? "pid \(parent.pid)")
+                        Text(parent.name ?? "pid \(String(parent.pid))")
                             .font(.system(size: 11))
                             .lineLimit(1)
                         Spacer()
-                        Text("×\(parent.count)")
+                        Text("×\(parent.count ?? 0)")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundStyle(MoleTheme.caution)
                     }

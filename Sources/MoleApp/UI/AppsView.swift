@@ -401,6 +401,7 @@ struct UninstallConfirmationSheet: View {
 
 struct UpdatesPane: View {
     @ObservedObject var viewModel: UpdatesStartupViewModel
+    @State private var showUpgradeSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -484,13 +485,18 @@ struct UpdatesPane: View {
             }
         }
         .onAppear { viewModel.loadUpdatesIfNeeded() }
+        .sheet(isPresented: $showUpgradeSheet) {
+            CaskUpgradeSheet(viewModel: viewModel)
+        }
     }
 
     private var updatesList: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 ForEach(viewModel.outdatedCasks) { cask in
-                    UpdateRow(cask: cask, viewModel: viewModel)
+                    UpdateRow(cask: cask, viewModel: viewModel) {
+                        showUpgradeSheet = true
+                    }
                 }
             }
             .padding(.horizontal, 36)
@@ -499,9 +505,110 @@ struct UpdatesPane: View {
     }
 }
 
+/// Popup window showing the live `brew upgrade --cask` CLI output.
+struct CaskUpgradeSheet: View {
+    @ObservedObject var viewModel: UpdatesStartupViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                if viewModel.upgradeFinished {
+                    Image(systemName: viewModel.upgradeExitCode == 0
+                          ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(viewModel.upgradeExitCode == 0
+                                         ? MoleTheme.healthy : MoleTheme.danger)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(headerTitle)
+                        .font(.system(size: 15, weight: .bold))
+                    Text("brew upgrade --cask \(viewModel.upgradeCaskName ?? "")")
+                        .font(MoleTheme.mono)
+                        .foregroundStyle(MoleTheme.textTertiary)
+                }
+                Spacer()
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(viewModel.upgradeLog.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(MoleTheme.textSecondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(10)
+                }
+                .frame(minHeight: 180, maxHeight: 260)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.25)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(MoleTheme.border))
+                .defaultScrollAnchor(.bottom)
+                .onChange(of: viewModel.upgradeLog.count) { _, _ in
+                    if let last = viewModel.upgradeLog.last {
+                        proxy.scrollTo(last, anchor: .bottom)
+                    }
+                }
+                .accessibilityLabel("Upgrade output log")
+            }
+
+            HStack {
+                if viewModel.upgradeFinished {
+                    Text(resultMessage)
+                        .font(.system(size: 12))
+                        .foregroundStyle(viewModel.upgradeExitCode == 0
+                                         ? MoleTheme.healthy : MoleTheme.caution)
+                }
+                Spacer()
+                if !viewModel.upgradeFinished {
+                    Button("Cancel", role: .cancel) {
+                        viewModel.cancelUpgrade()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                } else {
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(MoleTheme.accent)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 520, height: 400)
+        .background(MoleTheme.panel)
+        .interactiveDismissDisabled(!viewModel.upgradeFinished)
+        .accessibilityLabel("Cask upgrade progress")
+    }
+
+    private var headerTitle: String {
+        if viewModel.upgradeFinished {
+            switch viewModel.upgradeExitCode {
+            case 0: return "Update complete"
+            case nil: return "Update cancelled"
+            default: return "Update failed"
+            }
+        }
+        return "Updating \(viewModel.upgradeCaskName ?? "")…"
+    }
+
+    private var resultMessage: String {
+        switch viewModel.upgradeExitCode {
+        case 0: return "\(viewModel.upgradeCaskName ?? "Cask") updated successfully."
+        case nil: return "The upgrade was cancelled."
+        default: return "brew exited with code \(viewModel.upgradeExitCode ?? -1) — see output above."
+        }
+    }
+}
+
 struct UpdateRow: View {
     let cask: HomebrewCaskUpdate
     @ObservedObject var viewModel: UpdatesStartupViewModel
+    var onShowSheet: () -> Void = {}
 
     var body: some View {
         MoleCard(padding: 0) {
@@ -538,11 +645,14 @@ struct UpdateRow: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Button("Update") { viewModel.upgrade(cask) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .tint(MoleTheme.accent)
-                        .accessibilityLabel("Update \(cask.name) to \(cask.currentVersion ?? "latest")")
+                    Button("Update") {
+                        viewModel.upgradeWithStream(cask) { onShowSheet() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(MoleTheme.accent)
+                    .disabled(viewModel.upgradingCask != nil)
+                    .accessibilityLabel("Update \(cask.name) to \(cask.currentVersion ?? "latest")")
                 }
             }
             .padding(.horizontal, 14)
@@ -635,10 +745,20 @@ struct StartupPane: View {
         Group {
             if viewModel.loginItemsUnavailable {
                 Spacer()
-                EmptyStateView(
-                    icon: "lock.shield",
-                    title: "Login items unavailable",
-                    message: "macOS denied automation access to System Events. Grant access in System Settings → Privacy & Security → Automation, then refresh.")
+                VStack(spacing: 12) {
+                    EmptyStateView(
+                        icon: "lock.shield",
+                        title: "Login items unavailable",
+                        message: viewModel.loginItemsErrorCode == -1743
+                            ? "macOS denied automation access to System Events. Open System Settings → Privacy & Security → Automation and allow Mole, then refresh."
+                            : "Could not read login items (error \(viewModel.loginItemsErrorCode)). Grant access in System Settings → Privacy & Security → Automation, then refresh.")
+                    Button("Open Automation Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
                 Spacer()
             } else if viewModel.loginItems.isEmpty {
                 Spacer()
@@ -650,30 +770,8 @@ struct StartupPane: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(viewModel.loginItems, id: \.self) { item in
-                            HStack(spacing: 12) {
-                                Image(systemName: "person.crop.circle")
-                                    .foregroundStyle(MoleTheme.accent)
-                                    .frame(width: 30)
-                                Text(item)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(MoleTheme.textPrimary)
-                                Spacer()
-                                Text("Login item")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(MoleTheme.infoBlue.opacity(0.16)))
-                                    .foregroundStyle(MoleTheme.infoBlue)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: MoleTheme.cardRadius, style: .continuous)
-                                    .fill(MoleTheme.card))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: MoleTheme.cardRadius, style: .continuous)
-                                    .strokeBorder(MoleTheme.border, lineWidth: 1))
+                        ForEach(viewModel.loginItems) { item in
+                            LoginItemRow(item: item)
                         }
                     }
                     .padding(.horizontal, 36)
@@ -681,6 +779,59 @@ struct StartupPane: View {
                 }
             }
         }
+    }
+}
+
+struct LoginItemRow: View {
+    let item: LoginItemInfo
+    @State private var icon: NSImage?
+
+    var body: some View {
+        MoleCard(padding: 0) {
+            HStack(spacing: 12) {
+                if let icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 28, height: 28)
+                        .cornerRadius(6)
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .foregroundStyle(MoleTheme.accent)
+                        .frame(width: 28)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                    if !item.path.isEmpty {
+                        Text(item.path)
+                            .font(MoleTheme.mono)
+                            .font(.system(size: 10))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(MoleTheme.textTertiary)
+                    }
+                }
+                Spacer()
+                Text("Login item")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(MoleTheme.infoBlue.opacity(0.16)))
+                    .foregroundStyle(MoleTheme.infoBlue)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+        .onAppear {
+            guard icon == nil, !item.path.isEmpty else { return }
+            DispatchQueue.global(qos: .utility).async {
+                let img = NSWorkspace.shared.icon(forFile: item.path)
+                DispatchQueue.main.async { icon = img }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Login item \(item.name)")
     }
 }
 
