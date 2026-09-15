@@ -6,24 +6,77 @@ import SwiftUI
 enum MoleTheme {
     // MARK: Backgrounds
 
-    /// Deepest window background (navy-charcoal).
-    static let background = Color(red: 0.075, green: 0.078, blue: 0.09)
+    // MARK: Appearance-adaptive surfaces (Apple guideline: adapt to light/dark)
+    // All structural colors resolve via the system appearance so the glass
+    // window reads correctly in both modes.
+
+    /// Deepest window background (navy-charcoal / light neutral).
+    static let background = Color(NSColor(name: "moleBackground", dynamicProvider: { appearance in
+        (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor(red: 0.075, green: 0.078, blue: 0.09, alpha: 1)
+            : NSColor(red: 0.94, green: 0.94, blue: 0.95, alpha: 1)
+    }))
     /// Elevated panel base.
-    static let panel = Color(red: 0.11, green: 0.115, blue: 0.13)
+    static let panel = Color(NSColor(name: "molePanel", dynamicProvider: { appearance in
+        (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor(red: 0.11, green: 0.115, blue: 0.13, alpha: 1)
+            : NSColor(red: 0.97, green: 0.97, blue: 0.98, alpha: 1)
+    }))
     /// Card surface, slightly warmer.
-    static let card = Color(red: 0.14, green: 0.14, blue: 0.16)
+    static let card = Color(NSColor(name: "moleCard", dynamicProvider: { appearance in
+        (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor(red: 0.14, green: 0.14, blue: 0.16, alpha: 1)
+            : NSColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.85)
+    }))
     /// Warm brown-black used on maintenance views (Clean / Optimize).
-    static let warmPanel = Color(red: 0.13, green: 0.11, blue: 0.095)
+    static let warmPanel = Color(NSColor(name: "moleWarmPanel", dynamicProvider: { appearance in
+        (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor(red: 0.13, green: 0.11, blue: 0.095, alpha: 1)
+            : NSColor(red: 0.96, green: 0.94, blue: 0.9, alpha: 1)
+    }))
     /// Hairline border color.
-    static let border = Color.white.opacity(0.09)
+    static let border = Color(NSColor(name: "moleBorder", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.09)
+            : NSColor.black.withAlphaComponent(0.1))
+    }))
     /// Stronger border for focused elements.
-    static let borderStrong = Color.white.opacity(0.18)
+    static let borderStrong = Color(NSColor(name: "moleBorderStrong", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.18)
+            : NSColor.black.withAlphaComponent(0.22))
+    }))
 
     // MARK: Text
 
-    static let textPrimary = Color.white.opacity(0.92)
-    static let textSecondary = Color.white.opacity(0.55)
-    static let textTertiary = Color.white.opacity(0.35)
+    static let textPrimary = Color(NSColor(name: "moleTextPrimary", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.92)
+            : NSColor.black.withAlphaComponent(0.88))
+    }))
+    static let textSecondary = Color(NSColor(name: "moleTextSecondary", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.55)
+            : NSColor.black.withAlphaComponent(0.55))
+    }))
+    static let textTertiary = Color(NSColor(name: "moleTextTertiary", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.35)
+            : NSColor.black.withAlphaComponent(0.38))
+    }))
+
+    /// Subtle fill for pills/search fields (white in dark, black in light).
+    static let fillSubtle = Color(NSColor(name: "moleFillSubtle", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.08)
+            : NSColor.black.withAlphaComponent(0.06))
+    }))
+    /// Strong fill for selected pills.
+    static let fillSelected = Color(NSColor(name: "moleFillSelected", dynamicProvider: { appearance in
+        ((appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            ? NSColor.white.withAlphaComponent(0.92)
+            : NSColor.white.withAlphaComponent(0.95))
+    }))
 
     // MARK: Accents
 

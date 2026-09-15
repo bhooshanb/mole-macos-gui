@@ -12,10 +12,13 @@ struct MoleApp: App {
             ContentView(appModel: appModel)
                 .frame(minWidth: 900, minHeight: 650)
                 .background(MainWindowAccessor())
+                .glassWindowBackground()
                 .onReceive(appModel.$showingSettings) { _ in }
         }
-        .windowStyle(.automatic)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        // No default title bar / border: content fills the window; on macOS 26
+        // the window itself is a Liquid Glass slab. (.plain needs macOS 15;
+        // .automatic + the fullSizeContentView mask below covers macOS 14.)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .newItem) {
@@ -89,6 +92,7 @@ struct MainWindowAccessor: NSViewRepresentable {
 
         func windowDidBecomeMain(_ notification: Notification) {
             MainWindow.window = notification.object as? NSWindow
+            GlassWindowChrome.apply(to: MainWindow.window!)
         }
     }
 
@@ -100,6 +104,7 @@ struct MainWindowAccessor: NSViewRepresentable {
             if let window = view.window {
                 window.delegate = context.coordinator
                 MainWindow.window = window
+                GlassWindowChrome.apply(to: window)
             }
         }
         return view

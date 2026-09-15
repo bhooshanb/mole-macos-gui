@@ -124,7 +124,7 @@ struct StatusView: View {
             .font(.system(size: 11))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(Capsule().fill(Color.white.opacity(0.06)))
+            .background(Capsule().fill(MoleTheme.fillSubtle))
             .foregroundStyle(MoleTheme.textSecondary)
     }
 
@@ -174,7 +174,7 @@ struct StatusView: View {
                                 .foregroundStyle(MoleTheme.textTertiary)
                                 .frame(width: 10, alignment: .trailing)
                             Capsule()
-                                .fill(Color.white.opacity(0.08))
+                                .fill(MoleTheme.fillSubtle)
                                 .frame(width: 70, height: 4)
                                 .overlay(alignment: .leading) {
                                     Capsule()

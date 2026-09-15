@@ -49,7 +49,7 @@ struct TopNavigationBar: View {
             }
             .padding(4)
             .background(
-                Capsule().fill(Color.white.opacity(0.06))
+                Capsule().fill(MoleTheme.fillSubtle)
             )
             .overlay(
                 Capsule().strokeBorder(MoleTheme.border, lineWidth: 1)
@@ -77,9 +77,9 @@ struct TopNavigationBar: View {
                 .background(
                     Group {
                         if isSelected {
-                            Capsule().fill(Color.white.opacity(0.92))
+                            Capsule().fill(MoleTheme.fillSelected)
                         } else if focusedSection == section {
-                            Capsule().fill(Color.white.opacity(0.1))
+                            Capsule().fill(MoleTheme.fillSubtle)
                         }
                     }
                 )
@@ -104,19 +104,22 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Headroom for the traffic lights now that the title bar is gone.
             TopNavigationBar(selection: $appModel.section)
+                .padding(.top, 14)
 
             Divider().overlay(MoleTheme.border)
 
             ZStack {
-                MoleTheme.background.ignoresSafeArea()
+                GlassTheme.windowBackground.ignoresSafeArea()
                 sectionView
                     .id(appModel.section)
                     .transition(.opacity)
             }
         }
-        .background(MoleTheme.background)
-        .preferredColorScheme(.dark)
+        .background(GlassTheme.windowBackground)
+        // Follow the system appearance (Apple guideline: respect light/dark).
+        .preferredColorScheme(nil)
         .environmentObject(appModel)
         .onAppear {
             appModel.onAppear()

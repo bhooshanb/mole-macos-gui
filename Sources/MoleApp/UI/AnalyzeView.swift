@@ -127,7 +127,7 @@ struct AnalyzeSidebar: View {
                     .padding(.vertical, 7)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(isActive ? Color.white.opacity(0.1) : .clear))
+                            .fill(isActive ? MoleTheme.fillSubtle : .clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

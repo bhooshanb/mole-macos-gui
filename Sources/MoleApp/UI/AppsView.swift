@@ -53,7 +53,7 @@ struct SubTabBar: View {
                         .background(
                             Group {
                                 if selection == tab {
-                                    Capsule().fill(Color.white.opacity(0.14))
+                                    Capsule().fill(MoleTheme.fillSubtle)
                                 }
                             }
                         )
@@ -81,7 +81,7 @@ struct UninstallPane: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.white.opacity(0.06)))
+                    .background(Capsule().fill(MoleTheme.fillSubtle))
                     .frame(maxWidth: 280)
                     .accessibilityLabel("Search installed applications")
                 Spacer()
@@ -169,7 +169,7 @@ struct UninstallPane: View {
                     .padding(.horizontal, 22)
                     .padding(.vertical, 8)
                     .background(
-                        Capsule().fill(viewModel.selectedCount > 0 ? MoleTheme.danger : Color.white.opacity(0.1)))
+                        Capsule().fill(viewModel.selectedCount > 0 ? MoleTheme.danger : MoleTheme.fillSubtle))
                     .foregroundStyle(viewModel.selectedCount > 0 ? .white : MoleTheme.textTertiary)
             }
             .buttonStyle(.plain)
