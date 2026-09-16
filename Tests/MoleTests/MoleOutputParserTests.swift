@@ -179,6 +179,39 @@ struct MoleOutputParserTests {
         #expect(summary.dryRun)
     }
 
+    /// Regression: Mole exits 1 when any task fails, even in dry-run, while
+    /// still printing a complete report. The app must parse that as a valid
+    /// summary (with the failed outcome) rather than surfacing it as an error.
+    @Test func optimizeDryRunWithFailedTaskStillParses() {
+        let output = """
+        ⚙ System  8/16 GB RAM | 200/500 GB Disk | Uptime 2d
+        ➤ Network Cache Refresh
+          → DNS cache flushed                       (applied)
+        ➤ Spotlight Rebuild
+          ☻ mdfind check failed                     (failed: command not available)
+        ======================================================================
+        Dry Run Complete, No Changes Made
+        Would apply 3 optimizations | 1 failed
+        ======================================================================
+        """
+        let summary = OptimizeOutputParser.parse(output, dryRun: true)
+        #expect(summary.dryRun)
+        #expect(!summary.tasks.isEmpty)
+        #expect(summary.failedCount >= 1)
+    }
+
+    /// A broken run (no task lines at all, e.g. missing `bc` dependency) must
+    /// NOT parse as an empty success — callers detect this via tasks.isEmpty
+    /// plus exit code and surface a real error.
+    @Test func optimizeBrokenRunYieldsNoTasks() {
+        let output = """
+        ⚙ Header only
+        Missing dependency: bc
+        """
+        let summary = OptimizeOutputParser.parse(output, dryRun: true)
+        #expect(summary.tasks.isEmpty)
+    }
+
     @Test func ansiStripping() {
         let colored = "\u{1B}[32m✓\u{1B}[0m done"
         #expect(!CleanOutputParser.stripANSI(colored).contains("\u{1B}"))

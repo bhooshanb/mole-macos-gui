@@ -399,7 +399,8 @@ enum OptimizeOutputParser {
             }
 
             guard line.hasPrefix("→") || line.hasPrefix("◎") || line.hasPrefix("✓")
-                || line.hasPrefix("⚠") || line.hasPrefix("✗") || line.hasPrefix("!") else {
+                || line.hasPrefix("⚠") || line.hasPrefix("✗") || line.hasPrefix("!")
+                || line.hasPrefix("☻") else {
                 continue
             }
 
@@ -423,6 +424,11 @@ enum OptimizeOutputParser {
             case "◎", "✗":
                 outcome = .skipped(reason: reason)
                 skippedCount += 1
+            case "☻":
+                // Mole's ICON_ERROR — a task whose execution failed
+                // (lib/core/base.sh: ICON_ERROR="☻").
+                outcome = .failed(reason: reason ?? body)
+                failedCount += 1
             case "⚠":
                 outcome = .attention(message: body)
                 failedCount += 1

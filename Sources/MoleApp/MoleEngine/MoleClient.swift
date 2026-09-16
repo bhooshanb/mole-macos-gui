@@ -151,24 +151,42 @@ struct MoleClient: Sendable {
     // MARK: - Optimize
 
     /// `mo optimize --dry-run` — expand the task list without changes.
+    ///
+    /// Mole exits 1 when any task reports a `failed` outcome (see
+    /// `optimize_outcomes_succeeded` in lib/optimize/outcomes.sh) — even for a
+    /// dry run, which never modifies anything. A completed report with failed
+    /// tasks is a valid result, so the failure threshold here only rejects
+    /// runs that produced no parseable output at all.
     func optimizeDryRun() async throws -> OptimizeSummary {
         let mo = try locate().url.path
         let result = try await runner.run(mo, arguments: ["optimize", "--dry-run"], timeout: 15 * 60)
-        guard result.succeeded else {
+        guard !result.timedOut && !result.wasCancelled else {
             throw MoleClientError.invalidOutput(stderrSummary(result))
         }
-        return OptimizeOutputParser.parse(result.stdout, dryRun: true)
+        let summary = OptimizeOutputParser.parse(result.stdout, dryRun: true)
+        // Exit 1 *with* task lines = completed pass with failed tasks (valid).
+        // Exit 1 *without* any = the run itself broke (e.g. missing `bc`).
+        if summary.tasks.isEmpty && result.exitCode != 0 {
+            throw MoleClientError.invalidOutput(stderrSummary(result))
+        }
+        return summary
     }
 
     /// `mo optimize` — run maintenance. Sudo-needed tasks are skipped by the
     /// CLI itself when it cannot prompt; the app surfaces those skips.
+    /// Like the dry run, Mole exits 1 if any task failed; the parsed summary
+    /// carries those failures, so a full report is still returned.
     func optimize() async throws -> OptimizeSummary {
         let mo = try locate().url.path
         let result = try await runner.run(mo, arguments: ["optimize"], timeout: 30 * 60)
-        guard result.succeeded else {
+        guard !result.timedOut && !result.wasCancelled else {
             throw MoleClientError.invalidOutput(stderrSummary(result))
         }
-        return OptimizeOutputParser.parse(result.stdout, dryRun: false)
+        let summary = OptimizeOutputParser.parse(result.stdout, dryRun: false)
+        if summary.tasks.isEmpty && result.exitCode != 0 {
+            throw MoleClientError.invalidOutput(stderrSummary(result))
+        }
+        return summary
     }
 
     // MARK: - Analyze

@@ -9,6 +9,7 @@ final class MenuBarStatusItemController: ObservableObject {
     static let shared = MenuBarStatusItemController()
 
     private var statusItem: NSStatusItem?
+    private var popover: NSPopover?
     private var cancellable: AnyCancellable?
 
     func install(appModel: AppViewModel) {
@@ -19,7 +20,7 @@ final class MenuBarStatusItemController: ObservableObject {
         // Respect the current setting immediately at install time.
         item.isVisible = MolePreferences.shared.menuBarEnabled
         let popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 420)
+        popover.contentSize = NSSize(width: 316, height: 560)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MenuBarPanel(appModel: appModel))
         item.button?.target = self
@@ -35,8 +36,6 @@ final class MenuBarStatusItemController: ObservableObject {
                 if !enabled { self?.popover?.performClose(nil) }
             }
     }
-
-    private var popover: NSPopover?
 
     @objc private func togglePanel(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
@@ -69,175 +68,342 @@ struct MenuBarScene: Scene {
     }
 }
 
-/// Compact floating panel shown from the menu bar. Independent of the main
-/// window: starts its own status collector when opened.
+// MARK: - Panel
+
+/// Compact floating panel shown from the menu bar, redesigned around a
+/// dense card grid: health header, CPU/GPU, Memory/Disk, Network/Fan,
+/// battery, top processes, and Clean Watch — all real `mo status` data.
 struct MenuBarPanel: View {
     let appModel: AppViewModel
     @StateObject private var model = MenuBarMonitorModel()
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-
-            Divider().overlay(MoleTheme.border)
-
-            if let snapshot = model.snapshot {
-                menuRows(snapshot)
-                Divider().overlay(MoleTheme.border)
-                topProcesses(snapshot)
-            } else {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("Collecting status…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MoleTheme.textSecondary)
+        ZStack {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    header
+                    if let snapshot = model.snapshot {
+                        statGrid(snapshot)
+                        batteryCard(snapshot)
+                        processesCard(snapshot)
+                    } else if model.loadFailed {
+                        errorState
+                    } else {
+                        loadingState
+                    }
+                    footer
                 }
+                .padding(12)
             }
 
-            // Re-read preferences whenever Wipe bumps the generation.
-            cleanWatchSummary
-                .id(model.cleanWatchGeneration)
-
-            Divider().overlay(MoleTheme.border)
-
-            HStack {
-                Toggle("Monitoring", isOn: Binding(
-                    get: { model.enabled },
-                    set: { model.setMonitoring($0) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.system(size: 11))
-                    .accessibilityLabel("Toggle status monitoring")
-                Spacer()
-                Button("Wipe") { model.resetHistory() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                Button("Open Mole") {
-                    // Reopen the hidden main window (close = hide).
-                    MainWindow.activate()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.mini)
-                .tint(MoleTheme.accent)
+            // Quick Clean flow overlays the panel while active.
+            if model.quickCleanPhase != .idle {
+                QuickCleanFlow(model: model)
+                    .transition(.opacity)
             }
         }
-        .padding(14)
-        .frame(width: 300)
+        .frame(width: 316, height: 560)
         .background(MoleTheme.panel)
         .onAppear { model.start() }
         .onDisappear { model.stop() }
     }
 
+    // MARK: Header
+
     private var header: some View {
-        HStack(spacing: 8) {
-            MoleSilhouette()
-                .frame(width: 26, height: 18)
-            Text("Mole")
-                .font(.system(size: 13, weight: .bold))
-            Spacer()
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(model.healthColor)
-                    .frame(width: 8, height: 8)
-                Text("\(model.snapshot?.healthScore ?? 0)")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(model.healthColor)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                MoleSilhouette()
+                    .frame(width: 26, height: 18)
+                Text("Mole")
+                    .font(.system(size: 13, weight: .bold))
+                Spacer()
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(model.healthColor)
+                        .frame(width: 8, height: 8)
+                    Text("\(model.snapshot?.healthScore ?? 0)")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(model.healthColor)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Health score \(model.snapshot?.healthScore ?? 0)")
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Health score \(model.snapshot?.healthScore ?? 0)")
+
+            // System tags: chip · RAM · macOS · uptime.
+            if let snapshot = model.snapshot {
+                FlowingTags(tags: systemTags(snapshot))
+            }
         }
     }
 
-    private func menuRows(_ snapshot: MetricsSnapshot) -> some View {
-        VStack(spacing: 6) {
-            miniRow("CPU", value: String(format: "%.0f%%", snapshot.cpu?.usage ?? 0),
-                    fraction: (snapshot.cpu?.usage ?? 0) / 100, color: MoleTheme.infoBlue)
-            miniRow("GPU",
-                    value: (snapshot.gpu?.first?.usage).flatMap { $0 >= 0 ? String(format: "%.0f%%", $0) : nil } ?? "—",
-                    fraction: 0, color: MoleTheme.infoBlue)
-            miniRow("Memory", value: String(format: "%.0f%%", snapshot.memory?.usedPercent ?? 0),
-                    fraction: (snapshot.memory?.usedPercent ?? 0) / 100, color: MoleTheme.infoBlue)
-            let disk = snapshot.disks?.first { !($0.external ?? false) } ?? snapshot.disks?.first
-            miniRow("Disk", value: String(format: "%.0f%%", disk?.usedPercent ?? 0),
-                    fraction: (disk?.usedPercent ?? 0) / 100,
-                    color: (disk?.usedPercent ?? 0) >= 85 ? MoleTheme.danger : MoleTheme.infoBlue)
-            let rx = snapshot.network?.compactMap(\.rxRateMbs).reduce(0, +) ?? 0
-            let tx = snapshot.network?.compactMap(\.txRateMbs).reduce(0, +) ?? 0
-            HStack {
-                Text("Network")
-                    .font(.system(size: 11))
-                    .foregroundStyle(MoleTheme.textSecondary)
-                Spacer()
-                Text("↓\(rateText(rx)) ↑\(rateText(tx))")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(MoleTheme.textPrimary)
+    private func systemTags(_ snapshot: MetricsSnapshot) -> [String] {
+        var tags: [String] = []
+        if let cpu = snapshot.hardware?.cpuModel { tags.append(cpu) }
+        if let ram = snapshot.hardware?.totalRAM { tags.append(ram) }
+        if let os = snapshot.hardware?.osVersion { tags.append(os) }
+        if let up = snapshot.uptime { tags.append("up \(up)") }
+        if snapshot.proxy?.enabled == true {
+            let type = snapshot.proxy?.type ?? "proxy"
+            tags.append(type)
+        }
+        return tags
+    }
+
+    // MARK: Stat grid
+
+    private func statGrid(_ snapshot: MetricsSnapshot) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                cpuCard(snapshot)
+                gpuCard(snapshot)
             }
-            if let battery = snapshot.batteries?.first {
-                HStack {
-                    Text("Battery")
-                        .font(.system(size: 11))
+            HStack(spacing: 8) {
+                memoryCard(snapshot)
+                diskCard(snapshot)
+            }
+            HStack(spacing: 8) {
+                networkCard(snapshot)
+                fanCard(snapshot)
+            }
+        }
+    }
+
+    private func cpuCard(_ snapshot: MetricsSnapshot) -> some View {
+        let usage = snapshot.cpu?.usage ?? 0
+        let temp = snapshot.thermal?.cpuTemp ?? 0
+        return PanelMetricCard(
+            icon: "cpu", title: "CPU", badge: temp > 0 ? "\(Int(temp))°C" : nil,
+            badgeColor: tempColor(temp), value: Int(usage.rounded()), unit: "%",
+            series: model.cpuHistory,
+            caption: caption(idle: usage < 5, extra: loadText(snapshot)))
+    }
+
+    private func gpuCard(_ snapshot: MetricsSnapshot) -> some View {
+        let gpu = snapshot.gpu?.first
+        let usage = gpu?.usage ?? 0
+        let temp = snapshot.thermal?.gpuTemp ?? 0
+        return PanelMetricCard(
+            icon: "display", title: "GPU", badge: temp > 0 ? "\(Int(temp))°C" : nil,
+            badgeColor: tempColor(temp), value: Int(usage.rounded()), unit: "%",
+            series: model.gpuHistory,
+            caption: caption(idle: usage < 2, extra: coreText(gpu)))
+    }
+
+    private func memoryCard(_ snapshot: MetricsSnapshot) -> some View {
+        let mem = snapshot.memory
+        let pct = mem?.usedPercent ?? 0
+        let pressure = mem?.pressure ?? ""
+        let swap = mem?.swapUsed ?? 0
+        return PanelMetricCard(
+            icon: "memorychip", title: "MEM",
+            badge: pressure.isEmpty ? nil : "PRS \(pressure)",
+            badgeColor: MoleTheme.caution,
+            value: Int(pct.rounded()), unit: "%",
+            progress: pct / 100, progressColor: pct >= 85 ? MoleTheme.danger : MoleTheme.caution,
+            series: model.memoryHistory,
+            caption: swap > 0 ? "\(bytesText(swap)) swap" : "0 swap")
+    }
+
+    private func diskCard(_ snapshot: MetricsSnapshot) -> some View {
+        let disk = snapshot.disks?.first { !($0.external ?? false) } ?? snapshot.disks?.first
+        let pct = disk?.usedPercent ?? 0
+        let total = disk?.total ?? 0
+        let free = max(0, total - (disk?.used ?? 0))
+        return PanelMetricCard(
+            icon: "internaldrive", title: "Disk",
+            badge: total > 0 ? bytesText(total) : nil, badgeColor: MoleTheme.infoBlue,
+            value: Int(pct.rounded()), unit: "%",
+            progress: pct / 100,
+            progressColor: pct >= 90 ? MoleTheme.danger : MoleTheme.infoBlue,
+            caption: "\(bytesText(free)) free")
+    }
+
+    private func networkCard(_ snapshot: MetricsSnapshot) -> some View {
+        let rx = snapshot.network?.compactMap(\.rxRateMbs).reduce(0, +) ?? 0
+        let tx = snapshot.network?.compactMap(\.txRateMbs).reduce(0, +) ?? 0
+        let iface = snapshot.network?.first { ($0.rxRateMbs ?? 0) > 0 || ($0.txRateMbs ?? 0) > 0 }?.name
+            ?? snapshot.network?.first?.name
+        return PanelMetricCard(
+            icon: "network", title: "Network",
+            badge: iface.map { String($0.prefix(6)) }, badgeColor: MoleTheme.infoBlue,
+            value: nil, unit: nil, series: model.networkHistory,
+            caption: "↑\(rateText(tx)) ↓\(rateText(rx))")
+    }
+
+    private func fanCard(_ snapshot: MetricsSnapshot) -> some View {
+        let rpm = snapshot.thermal?.fanSpeed ?? 0
+        let count = snapshot.thermal?.fanCount ?? 0
+        return PanelMetricCard(
+            icon: "fan", title: "FAN",
+            badge: nil, badgeColor: MoleTheme.infoBlue,
+            value: rpm, unit: "RPM",
+            caption: count > 1 ? "\(count) fans" : (rpm == 0 ? "Idle" : "Managed by macOS"))
+    }
+
+    // MARK: Battery
+
+    private func batteryCard(_ snapshot: MetricsSnapshot) -> some View {
+        guard let battery = snapshot.batteries?.first else { return AnyView(EmptyView()) }
+        let pct = battery.percent ?? 0
+        let charging = (battery.status ?? "").lowercased().contains("charg")
+        let color: Color = pct >= 30 ? MoleTheme.healthy : MoleTheme.danger
+        return AnyView(
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 5) {
+                    Image(systemName: "battery.75percent")
+                        .font(.system(size: 10))
+                        .foregroundStyle(color)
+                    Text("BATTERY")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MoleTheme.textSecondary)
                     Spacer()
-                    Text(String(format: "%.0f%% · %d cycles", battery.percent ?? 0, battery.cycleCount ?? 0))
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                    if let health = battery.health {
+                        Text("\(health) health")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(MoleTheme.healthy.opacity(0.14)))
+                            .foregroundStyle(MoleTheme.healthy)
+                    }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text("\(Int(pct))%")
+                        .font(.system(size: 24, weight: .heavy, design: .rounded))
                         .foregroundStyle(MoleTheme.textPrimary)
+                    Text(charging ? "Plugged In" : (battery.status ?? "On Battery"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(MoleTheme.textSecondary)
+                    if let cycles = battery.cycleCount {
+                        Spacer()
+                        Text("\(cycles) cycles")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(MoleTheme.textTertiary)
+                    }
                 }
             }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: MoleTheme.cardRadius).fill(MoleTheme.card))
+            .overlay(RoundedRectangle(cornerRadius: MoleTheme.cardRadius).strokeBorder(MoleTheme.border))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Battery \(Int(pct)) percent, \(battery.status ?? ""), health \(battery.health ?? "unknown")"))
+    }
+
+    // MARK: Processes
+
+    private func processesCard(_ snapshot: MetricsSnapshot) -> some View {
+        let procs = snapshot.topProcesses?.prefix(4) ?? []
+        return VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Fan")
-                    .font(.system(size: 11))
+                Text("TOP PROCESSES")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(MoleTheme.textSecondary)
                 Spacer()
-                Text(snapshot.thermal?.fanSpeed.map { $0 > 0 ? "\($0) RPM" : "—" } ?? "—")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(MoleTheme.textPrimary)
-            }
-        }
-    }
-
-    private func miniRow(_ label: String, value: String, fraction: Double, color: Color) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(MoleTheme.textSecondary)
-                .frame(width: 52, alignment: .leading)
-            CapacityBar(fraction: fraction, color: color, height: 4)
-            Text(value)
-                .font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundStyle(MoleTheme.textPrimary)
-                .frame(width: 38, alignment: .trailing)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(value)")
-    }
-
-    private func topProcesses(_ snapshot: MetricsSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SectionLabel(text: "Top processes")
-            ForEach(snapshot.topProcesses?.prefix(3) ?? [], id: \.pid) { process in
-                HStack {
-                    Text(process.name ?? "?")
-                        .font(.system(size: 11))
-                        .lineLimit(1)
-                        .foregroundStyle(MoleTheme.textPrimary)
-                    Spacer()
-                    Text(String(format: "%.0f%%", process.cpu ?? 0))
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(MoleTheme.textSecondary)
+                if snapshot.processStale == true {
+                    Text("stale")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(MoleTheme.textTertiary)
                 }
             }
+            if procs.isEmpty {
+                Text("No process data")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MoleTheme.textTertiary)
+            } else {
+                HStack {
+                    Spacer()
+                    Text("CPU").font(.system(size: 9)).foregroundStyle(MoleTheme.textTertiary)
+                        .frame(width: 44, alignment: .trailing)
+                    Text("Memory").font(.system(size: 9)).foregroundStyle(MoleTheme.textTertiary)
+                        .frame(width: 62, alignment: .trailing)
+                }
+                ForEach(procs, id: \.pid) { proc in
+                    HStack(spacing: 6) {
+                        Text(proc.name ?? "?")
+                            .font(.system(size: 11))
+                            .lineLimit(1)
+                            .foregroundStyle(MoleTheme.textPrimary)
+                        Spacer()
+                        Text(String(format: "%.1f%%", proc.cpu ?? 0))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(MoleTheme.textSecondary)
+                            .frame(width: 44, alignment: .trailing)
+                        Text(proc.memoryBytes.map { bytesText($0) } ?? "—")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(MoleTheme.textSecondary)
+                            .frame(width: 62, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(proc.name ?? "process"), CPU \(String(format: "%.1f", proc.cpu ?? 0)) percent, memory \(proc.memoryBytes.map { bytesText($0) } ?? "unknown")")
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: MoleTheme.cardRadius).fill(MoleTheme.card))
+        .overlay(RoundedRectangle(cornerRadius: MoleTheme.cardRadius).strokeBorder(MoleTheme.border))
+    }
+
+    // MARK: Footer
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Spacer()
+                Button {
+                    model.setMonitoring(!model.enabled)
+                } label: {
+                    Label(model.enabled ? "On" : "Off", systemImage: "hare")
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(model.enabled ? MoleTheme.accent.opacity(0.22) : MoleTheme.fillSubtle))
+                        .foregroundStyle(model.enabled ? MoleTheme.accent : MoleTheme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(model.enabled ? "Monitoring on, turn off" : "Monitoring off, turn on")
+
+                Button {
+                    model.startQuickClean()
+                } label: {
+                    Label("Quick Clean", systemImage: "wind")
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(MoleTheme.accent.opacity(0.22)))
+                        .foregroundStyle(MoleTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(model.quickCleanPhase != .idle)
+                .accessibilityLabel("Quick clean: preview and run Mole's safe cleanup")
+
+                Button { MainWindow.activate() } label: {
+                    Label("Open", systemImage: "macwindow")
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(MoleTheme.fillSelected))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Re-read preferences whenever Wipe bumps the generation.
+            cleanWatchSummary
+                .id(model.cleanWatchGeneration)
         }
     }
 
     private var cleanWatchSummary: some View {
         let prefs = MolePreferences.shared
-        return VStack(alignment: .leading, spacing: 4) {
-            SectionLabel(text: "Clean Watch")
-            HStack(spacing: 12) {
-                summaryStat(bytesText(prefs.cleanWatchTotalBytes), "cleaned")
-                summaryStat("\(prefs.cleanWatchUninstallCount)", "uninstalled")
-                summaryStat("\(prefs.cleanWatchOptimizeCount)", "optimizations")
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("✦ CLEAN WATCH")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(MoleTheme.textSecondary)
+            HStack(spacing: 0) {
+                summaryStat(bytesText(prefs.cleanWatchTotalBytes), "Cleaned")
+                Spacer()
+                summaryStat("\(prefs.cleanWatchUninstallCount)", "Uninstalled")
+                Spacer()
+                summaryStat("\(prefs.cleanWatchOptimizeCount)", "Optimized")
             }
         }
         .accessibilityElement(children: .combine)
@@ -246,11 +412,65 @@ struct MenuBarPanel: View {
     private func summaryStat(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(value)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
                 .foregroundStyle(MoleTheme.textPrimary)
             Text(label)
                 .font(.system(size: 9))
                 .foregroundStyle(MoleTheme.textTertiary)
+        }
+    }
+
+    // MARK: States
+
+    private var loadingState: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Collecting status…")
+                .font(.system(size: 12))
+                .foregroundStyle(MoleTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 30)
+    }
+
+    private var errorState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Couldn't reach the Mole CLI")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MoleTheme.textPrimary)
+            Text("Make sure `mo` is installed, then reopen the panel.")
+                .font(.system(size: 11))
+                .foregroundStyle(MoleTheme.textSecondary)
+            Button("Retry") { model.retry() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        .padding(.vertical, 20)
+    }
+
+    // MARK: Helpers
+
+    private func caption(idle: Bool, extra: String?) -> String {
+        let prefix = idle ? "idle" : "active"
+        if let extra, !extra.isEmpty { return "\(prefix) · \(extra)" }
+        return prefix
+    }
+
+    private func loadText(_ snapshot: MetricsSnapshot) -> String? {
+        guard let load = snapshot.cpu?.load1, let cores = snapshot.cpu?.coreCount, cores > 0 else { return nil }
+        return String(format: "Load %.1f/%d", load, cores)
+    }
+
+    private func coreText(_ gpu: GPUStatus?) -> String? {
+        guard let cores = gpu?.coreCount, cores > 0 else { return gpu?.note }
+        return "\(cores) cores"
+    }
+
+    private func tempColor(_ t: Double) -> Color {
+        switch t {
+        case ..<50: return MoleTheme.healthy
+        case ..<70: return MoleTheme.caution
+        default: return MoleTheme.danger
         }
     }
 
@@ -259,16 +479,291 @@ struct MenuBarPanel: View {
     }
 }
 
+// MARK: - Quick Clean
+
+/// States of the panel's Quick Clean flow: dry-run preview → user
+/// confirmation → real clean → result.
+enum QuickCleanPhase: Equatable {
+    case idle
+    case previewing
+    case confirming
+    case cleaning
+    case done
+    case failed(String)
+}
+
+/// Overlay that drives Quick Clean inside the menu bar panel: shows the
+/// dry-run preview from the real `mo clean --dry-run`, asks for explicit
+/// confirmation, then runs `mo clean` with a progress indicator and a final
+/// summary. No deletion logic lives here — everything goes through MoleClient.
+struct QuickCleanFlow: View {
+    @ObservedObject var model: MenuBarMonitorModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch model.quickCleanPhase {
+            case .previewing:
+                stateRow(icon: "magnifyingglass", text: "Scanning for cleanable files…", spinning: true)
+                ProgressView(value: 0.35).tint(MoleTheme.accent)
+
+            case .confirming:
+                confirmStep
+
+            case .cleaning:
+                stateRow(icon: "wind", text: "Cleaning…", spinning: true)
+                ProgressView(value: model.quickCleanProgress).tint(MoleTheme.accent)
+                if let line = model.quickCleanStatusLine {
+                    Text(line)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(MoleTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Button("Cancel") { model.cancelQuickClean() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+            case .done:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(MoleTheme.healthy)
+                    .frame(maxWidth: .infinity)
+                Text("Cleaning complete")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                quickCleanResultSummary
+                Button("Done") { model.dismissQuickClean() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(MoleTheme.accent)
+                    .frame(maxWidth: .infinity)
+
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(MoleTheme.caution)
+                    .frame(maxWidth: .infinity)
+                Text("Quick Clean failed")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                Text(message)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(MoleTheme.textSecondary)
+                    .lineLimit(4)
+                HStack {
+                    Button("Retry") { model.startQuickClean() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    Spacer()
+                    Button("Close") { model.dismissQuickClean() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(MoleTheme.accent)
+                }
+
+            case .idle:
+                EmptyView()
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: MoleTheme.largeRadius).fill(MoleTheme.panel))
+        .overlay(RoundedRectangle(cornerRadius: MoleTheme.largeRadius).strokeBorder(MoleTheme.border))
+    }
+
+    private var confirmStep: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Ready to clean", systemImage: "wind")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MoleTheme.textPrimary)
+
+            if let preview = model.quickCleanPreview {
+                Text("\(bytesText(preview.totalBytes ?? 0)) in \(preview.itemCount) items")
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(MoleTheme.textPrimary)
+                Text("across \(preview.categoryCount) categories")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MoleTheme.textSecondary)
+
+                // First few categories as a plan summary.
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(preview.items.filter { !$0.skipped }.prefix(4)) { item in
+                        HStack {
+                            Text(item.name)
+                                .font(.system(size: 10))
+                                .foregroundStyle(MoleTheme.textSecondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(item.estimatedBytes.map { bytesText($0) } ?? "—")
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundStyle(MoleTheme.textTertiary)
+                        }
+                    }
+                    if preview.categoryCount > 4 {
+                        Text("+ \(preview.categoryCount - 4) more categories")
+                            .font(.system(size: 9))
+                            .foregroundStyle(MoleTheme.textTertiary)
+                    }
+                }
+
+                Text("Files are removed via Mole's engine — caches only, protected locations respected. This cannot be undone for non-Trash items.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(MoleTheme.textTertiary)
+
+                HStack {
+                    Button("Cancel") { model.dismissQuickClean() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    Spacer()
+                    Button("Clean \(bytesText(preview.totalBytes ?? 0))") {
+                        model.confirmQuickClean()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(MoleTheme.accent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            } else {
+                Text("Preparing preview…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MoleTheme.textSecondary)
+            }
+        }
+    }
+
+    private var quickCleanResultSummary: some View {
+        let result = model.quickCleanResult
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("\(bytesText(result?.totalBytes ?? 0)) recovered")
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
+                .foregroundStyle(MoleTheme.textPrimary)
+            Text("\(result?.itemCount ?? 0) items · \(result?.categoryCount ?? 0) categories")
+                .font(.system(size: 10))
+                .foregroundStyle(MoleTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func stateRow(icon: String, text: String, spinning: Bool) -> some View {
+        HStack(spacing: 8) {
+            if spinning {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: icon)
+            }
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MoleTheme.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Card building blocks
+
+/// Compact panel-specific stat card (Status's generic MetricCard doesn't fit
+/// the dense grid). One stat card: icon+title row with a colored badge, a big
+/// value, a sparkline or capacity bar, and a caption line.
+private struct PanelMetricCard: View {
+    let icon: String
+    let title: String
+    let badge: String?
+    let badgeColor: Color
+    let value: Int?
+    let unit: String?
+    var progress: Double?
+    var progressColor: Color = .clear
+    var series: [Double] = []
+    var caption: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(badgeColor)
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(MoleTheme.textSecondary)
+                Spacer()
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .background(Capsule().fill(badgeColor.opacity(0.14)))
+                        .foregroundStyle(badgeColor)
+                        .lineLimit(1)
+                }
+            }
+            if let value {
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text("\(value)")
+                        .font(.system(size: 21, weight: .heavy, design: .rounded))
+                        .foregroundStyle(MoleTheme.textPrimary)
+                    Text(unit ?? "")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MoleTheme.textTertiary)
+                }
+            }
+            if let progress {
+                CapacityBar(fraction: progress, color: progressColor, height: 5)
+            } else if series.count > 1 {
+                Sparkline(values: series, color: badgeColor)
+                    .frame(height: 22)
+            }
+            Text(caption)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(MoleTheme.textTertiary)
+                .lineLimit(1)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: MoleTheme.cardRadius).fill(MoleTheme.card))
+        .overlay(RoundedRectangle(cornerRadius: MoleTheme.cardRadius).strokeBorder(MoleTheme.border))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title) \(value.map { "\($0)\(unit ?? "")" } ?? ""), \(caption)")
+    }
+}
+
+/// Wrapping row of small monospace tags.
+private struct FlowingTags: View {
+    let tags: [String]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                ForEach(tags, id: \.self) { tag in
+                    Text(tag)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(MoleTheme.fillSubtle))
+                        .foregroundStyle(MoleTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Model
+
 /// Lightweight collector for the menu bar: one-shot snapshots on a slow timer,
-/// no persistent watch process unless enabled.
+/// no persistent watch process unless enabled. Retains rolling history for the
+/// card sparklines.
 @MainActor
 final class MenuBarMonitorModel: ObservableObject {
     @Published var snapshot: MetricsSnapshot?
+    @Published var loadFailed = false
+    @Published var cpuHistory: [Double] = []
+    @Published var gpuHistory: [Double] = []
+    @Published var memoryHistory: [Double] = []
+    @Published var networkHistory: [Double] = []
     @Published var enabled: Bool = MolePreferences.shared.menuBarEnabled {
         didSet { MolePreferences.shared.menuBarEnabled = enabled }
     }
 
     private let client = MoleClient()
+    private let historyLimit = 40
 
     var healthColor: Color {
         switch snapshot?.healthScore ?? 0 {
@@ -291,13 +786,40 @@ final class MenuBarMonitorModel: ObservableObject {
         stopPolling()
     }
 
+    func retry() {
+        loadFailed = false
+        refresh()
+        startPolling()
+    }
+
     private func refresh() {
         Task { [weak self] in
             guard let self else { return }
-            if let snapshot = try? await self.client.statusSnapshot() {
+            do {
+                let snapshot = try await self.client.statusSnapshot()
                 self.snapshot = snapshot
+                self.loadFailed = false
+                self.appendHistory(snapshot)
+            } catch {
+                // Keep the last good snapshot visible; only flag on repeated
+                // absence of data.
+                if self.snapshot == nil { self.loadFailed = true }
             }
         }
+    }
+
+    private func appendHistory(_ snapshot: MetricsSnapshot) {
+        append(&cpuHistory, snapshot.cpu?.usage ?? 0)
+        append(&gpuHistory, snapshot.gpu?.first?.usage ?? 0)
+        append(&memoryHistory, snapshot.memory?.usedPercent ?? 0)
+        let rx = snapshot.network?.compactMap(\.rxRateMbs).reduce(0, +) ?? 0
+        let tx = snapshot.network?.compactMap(\.txRateMbs).reduce(0, +) ?? 0
+        append(&networkHistory, rx + tx)
+    }
+
+    private func append(_ array: inout [Double], _ value: Double) {
+        array.append(value)
+        if array.count > historyLimit { array.removeFirst(array.count - historyLimit) }
     }
 
     /// Wipes the Clean Watch counters and bumps a generation token so every
@@ -319,6 +841,7 @@ final class MenuBarMonitorModel: ObservableObject {
     func setMonitoring(_ on: Bool) {
         enabled = on
         if on {
+            refresh()
             startPolling()
         } else {
             stopPolling()
@@ -329,8 +852,9 @@ final class MenuBarMonitorModel: ObservableObject {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while let self, !Task.isCancelled {
-                self.refresh()
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { break }
+                self.refresh()
             }
         }
     }
@@ -338,5 +862,104 @@ final class MenuBarMonitorModel: ObservableObject {
     private func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+    }
+
+    // MARK: Quick Clean
+
+    /// Dry-run summary awaiting confirmation.
+    @Published var quickCleanPreview: CleanSummary?
+    /// Result of the real clean run.
+    @Published var quickCleanResult: CleanSummary?
+    @Published var quickCleanPhase: QuickCleanPhase = .idle
+    @Published var quickCleanProgress: Double = 0
+    @Published var quickCleanStatusLine: String?
+
+    private var quickCleanTask: Task<Void, Never>?
+
+    /// Kicks off the Quick Clean flow: dry-run first, nothing is deleted
+    /// until the user explicitly confirms in the UI.
+    func startQuickClean() {
+        guard quickCleanPhase == .idle || quickCleanPhase == .done || quickCleanPhase == .failed("")
+            || isFailure else { return }
+        quickCleanPreview = nil
+        quickCleanResult = nil
+        quickCleanProgress = 0
+        quickCleanStatusLine = nil
+        quickCleanPhase = .previewing
+        quickCleanTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let preview = try await self.client.cleanDryRun()
+                guard !Task.isCancelled else { return }
+                self.quickCleanPreview = preview
+                self.quickCleanPhase = .confirming
+            } catch is CancellationError {
+                self.quickCleanPhase = .idle
+            } catch {
+                self.quickCleanPhase = .failed(String(describing: error))
+            }
+        }
+    }
+
+    private var isFailure: Bool {
+        if case .failed = quickCleanPhase { return true }
+        return false
+    }
+
+    /// User confirmed: run the real clean.
+    func confirmQuickClean() {
+        guard quickCleanPhase == .confirming else { return }
+        quickCleanPhase = .cleaning
+        quickCleanProgress = 0
+        quickCleanStatusLine = nil
+        quickCleanTask = Task { [weak self] in
+            guard let self else { return }
+            // Indeterminate-safe progress: ease toward 90% while the CLI runs,
+            // then snap to 100% on completion.
+            let progressTask = Task { [weak self] in
+                while let self, !Task.isCancelled, self.quickCleanPhase == .cleaning {
+                    if self.quickCleanProgress < 0.9 {
+                        withAnimation(.linear(duration: 0.5)) {
+                            self.quickCleanProgress = min(0.9, self.quickCleanProgress + 0.03)
+                        }
+                    }
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
+            do {
+                let result = try await self.client.clean()
+                progressTask.cancel()
+                guard !Task.isCancelled else { return }
+                withAnimation {
+                    self.quickCleanResult = result
+                    self.quickCleanProgress = 1
+                    self.quickCleanPhase = .done
+                }
+                // Feed the Clean Watch counters exactly like the main window.
+                MolePreferences.shared.cleanWatchSessionCount += 1
+                if let bytes = result.totalBytes {
+                    MolePreferences.shared.cleanWatchTotalBytes += bytes
+                }
+                self.refresh() // refresh stat cards (disk free may have changed)
+            } catch is CancellationError {
+                progressTask.cancel()
+                self.quickCleanPhase = .idle
+            } catch {
+                progressTask.cancel()
+                self.quickCleanPhase = .failed(String(describing: error))
+            }
+        }
+    }
+
+    func cancelQuickClean() {
+        quickCleanTask?.cancel()
+        quickCleanTask = nil
+        quickCleanPhase = .idle
+    }
+
+    func dismissQuickClean() {
+        quickCleanTask?.cancel()
+        quickCleanTask = nil
+        quickCleanPhase = .idle
     }
 }
