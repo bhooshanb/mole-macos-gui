@@ -66,7 +66,7 @@ struct WelcomeView: View {
     private var intro: some View {
         VStack(spacing: 18) {
             Spacer()
-            SparkCleanOrb()
+            SparkCleanOrb(animate: false)
                 .frame(width: 160, height: 160)
             Text("Welcome to SparkClean")
                 .font(SparkCleanTheme.metric(30))
@@ -112,7 +112,9 @@ struct WelcomeView: View {
                     missingCLIView
                 }
             } else {
-                ProgressView("Detecting command-line tool…")
+                Text("Detecting command-line tool…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(SparkCleanTheme.textSecondary)
             }
             Spacer()
         }
@@ -167,12 +169,9 @@ struct WelcomeView: View {
                     .foregroundStyle(SparkCleanTheme.textTertiary)
 
             case .installing:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Installing via \(installer.method?.label ?? "installer")…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(SparkCleanTheme.textSecondary)
-                }
+                Text("Installing via \(installer.method?.label ?? "installer")…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(SparkCleanTheme.textSecondary)
                 InstallerOutputLog(lines: installer.outputLines)
 
             case .failed(let reason):
@@ -204,7 +203,9 @@ struct WelcomeView: View {
                     .tint(SparkCleanTheme.accent)
 
             case .checking:
-                ProgressView("Checking…")
+                Text("Checking…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(SparkCleanTheme.textSecondary)
             }
         }
     }

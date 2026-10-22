@@ -487,6 +487,8 @@ struct CleanFailedView: View {
 /// never appears to shift or oscillate.
 struct SparkCleanOrb: View {
     var isPulsing = false
+    /// When false the glow stays at a fixed opacity — no motion at all.
+    var animate = true
     @State private var glowUp = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -513,7 +515,7 @@ struct SparkCleanOrb: View {
             }
         }
         .onAppear {
-            guard !reduceMotion else { return }
+            guard animate, !reduceMotion else { return }
             withAnimation(.easeInOut(duration: isPulsing ? 1.8 : 3.0).repeatForever(autoreverses: true)) {
                 glowUp = true
             }
