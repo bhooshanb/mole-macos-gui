@@ -1,6 +1,6 @@
 #!/usr/bin/env swift
-// Generates Resources/AppIcon.icns — the vector Mole silhouette rendered at
-// every icon size, composited into a rounded-rect dark tile.
+// Generates Resources/AppIcon.icns — the SparkClean four-point sparkle burst
+// rendered at every icon size, composited into a rounded-rect dark tile.
 import AppKit
 
 let sizes = [16, 32, 64, 128, 256, 512, 1024]
@@ -19,40 +19,56 @@ func drawIcon(_ size: CGFloat) -> NSImage {
         ending: NSColor(red: 0.07, green: 0.075, blue: 0.09, alpha: 1))
     gradient?.draw(in: tilePath, angle: -90)
 
-    // Warm amber mole silhouette (same geometry as MoleSilhouette in-app).
-    let accent = NSColor(red: 0.96, green: 0.62, blue: 0.28, alpha: 1)
+    // SparkClean brand electric blue-violet (same as SparkCleanTheme.accent).
+    let accent = NSGradient(
+        starting: NSColor(red: 0.62, green: 0.55, blue: 1.0, alpha: 1),
+        ending: NSColor(red: 0.42, green: 0.36, blue: 0.98, alpha: 1))
 
-    // Body dome with snout to the left.
-    let body = NSBezierPath()
-    let left = CGPoint(x: s * 0.20, y: s * 0.46)
-    let right = CGPoint(x: s * 0.80, y: s * 0.46)
-    body.move(to: left)
-    body.curve(
-        to: right,
-        controlPoint1: CGPoint(x: s * 0.23, y: s * 0.80),
-        controlPoint2: CGPoint(x: s * 0.68, y: s * 0.82))
-    body.line(to: CGPoint(x: s * 0.80, y: s * 0.52))
-    body.line(to: CGPoint(x: s * 0.20, y: s * 0.52))
-    body.close()
-    accent.setFill()
-    body.fill()
+    // Four-point sparkle path: convex points joined by concave curves.
+    func sparklePath(center: CGPoint, radius: CGFloat) -> NSBezierPath {
+        let pinch = radius * 0.22
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: center.x, y: center.y - radius))
+        path.curve(
+            to: CGPoint(x: center.x + radius, y: center.y),
+            controlPoint1: CGPoint(x: center.x + pinch, y: center.y - pinch),
+            controlPoint2: CGPoint(x: center.x + pinch, y: center.y - pinch))
+        path.curve(
+            to: CGPoint(x: center.x, y: center.y + radius),
+            controlPoint1: CGPoint(x: center.x + pinch, y: center.y + pinch),
+            controlPoint2: CGPoint(x: center.x + pinch, y: center.y + pinch))
+        path.curve(
+            to: CGPoint(x: center.x - radius, y: center.y),
+            controlPoint1: CGPoint(x: center.x - pinch, y: center.y + pinch),
+            controlPoint2: CGPoint(x: center.x - pinch, y: center.y + pinch))
+        path.curve(
+            to: CGPoint(x: center.x, y: center.y - radius),
+            controlPoint1: CGPoint(x: center.x - pinch, y: center.y - pinch),
+            controlPoint2: CGPoint(x: center.x - pinch, y: center.y - pinch))
+        path.close()
+        return path
+    }
 
-    // Snout bump.
-    let snout = NSBezierPath(
-        ovalIn: NSRect(x: s * 0.15, y: s * 0.40, width: s * 0.14, height: s * 0.16))
-    snout.fill()
+    // Primary sparkle, centered, with a soft glow behind it.
+    let glowRect = NSRect(x: s * 0.2, y: s * 0.2, width: s * 0.6, height: s * 0.6)
+    let glow = NSGradient(
+        starting: NSColor(red: 0.55, green: 0.45, blue: 1.0, alpha: 0.35),
+        ending: NSColor(red: 0.55, green: 0.45, blue: 1.0, alpha: 0.0))
+    glow?.draw(in: NSBezierPath(ovalIn: glowRect), angle: -90)
 
-    // Eye.
-    let eye = NSBezierPath(
-        ovalIn: NSRect(x: s * 0.40, y: s * 0.60, width: s * 0.055, height: s * 0.055))
-    NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1).setFill()
-    eye.fill()
+    accent?.draw(
+        in: sparklePath(center: CGPoint(x: s * 0.5, y: s * 0.5), radius: s * 0.3),
+        angle: -90)
 
-    // Nose.
-    let nose = NSBezierPath(
-        ovalIn: NSRect(x: s * 0.165, y: s * 0.445, width: s * 0.035, height: s * 0.035))
-    NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 0.75).setFill()
-    nose.fill()
+    // Upper-right satellite sparkle (NSImage is flipped: y grows downward).
+    accent?.draw(
+        in: sparklePath(center: CGPoint(x: s * 0.76, y: s * 0.28), radius: s * 0.13),
+        angle: -90)
+
+    // Lower-left satellite sparkle.
+    accent?.draw(
+        in: sparklePath(center: CGPoint(x: s * 0.26, y: s * 0.74), radius: s * 0.1),
+        angle: -90)
 
     image.unlockFocus()
     return image

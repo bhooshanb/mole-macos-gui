@@ -1,4 +1,4 @@
-# Mole.app — Architecture
+# SparkClean.app — Architecture
 
 ## Layers
 
@@ -13,9 +13,9 @@
 │ ViewModels (@MainActor ObservableObject state machines)      │
 │   Clean · Apps · Optimize · Analyze · Status · MenuBar       │
 ├──────────────────────────────────────────────────────────────┤
-│ Mole Engine Bridge                                           │
-│   MoleLocator      → find `mo` (override/bundle/paths/PATH)  │
-│   MoleClient       → typed API: cleanDryRun/clean,           │
+│ SparkClean Engine Bridge                                    │
+│   SparkCleanLocator   → find `mo` (override/bundle/paths/PATH) │
+│   SparkCleanClient    → typed API: cleanDryRun/clean,          │
 │                      appInventory/uninstallPlan/uninstall,   │
 │                      optimizeDryRun/optimize, analyze,       │
 │                      statusSnapshot/statusWatch, history     │
@@ -24,7 +24,7 @@
 │                      timeouts, cancellation, LC_ALL=C env    │
 ├──────────────────────────────────────────────────────────────┤
 │ Parsers                                                      │
-│   Codable models (MoleModels) for status/analyze/history/    │
+│   Codable models (SparkCleanModels) for status/analyze/history/│
 │   uninstall --list JSON                                      │
 │   Text parsers for clean / uninstall plan / optimize output  │
 │   (shapes verified against CLI 1.53 + real captured output)  │
@@ -36,8 +36,8 @@
 ## Data flow
 
 1. **View** → ViewModel method (e.g. `startScan()`).
-2. ViewModel → `MoleClient` async call on a `Task`.
-3. `MoleClient` locates `mo`, runs it via `ProcessRunner` (never as root,
+2. ViewModel → `SparkCleanClient` async call on a `Task`.
+3. `SparkCleanClient` locates `mo`, runs it via `ProcessRunner` (never as root,
    `LC_ALL=C` for stable parsing, 8 MB output cap, hard timeouts).
 4. Output is decoded/parsed into typed models.
 5. ViewModel publishes state; SwiftUI re-renders. All UI work stays on the
@@ -130,7 +130,7 @@ skips when admin access is unavailable surface as skips with reasons.
 
 ## Error model
 
-`MoleUserError` carries title + what happened + recovery suggestion for: CLI
+`SparkCleanUserError` carries title + what happened + recovery suggestion for: CLI
 missing, CLI outdated, permission denied, scan failed, partial scan, invalid
 path, volume disconnected, cancelled, partially completed, feature
 unavailable, stale monitoring data. Errors render as banners, sheets, or

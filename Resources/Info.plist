@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Mole</string>
+    <string>SparkClean</string>
     <key>CFBundleDisplayName</key>
-    <string>Mole</string>
+    <string>SparkClean</string>
     <key>CFBundleIdentifier</key>
-    <string>fun.mole.app</string>
+    <string>fun.sparkclean.app</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
@@ -15,7 +15,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>Mole</string>
+    <string>SparkClean</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -23,7 +23,7 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <key>NSHumanReadableCopyright</key>
-    <string>GPL-3.0 — UI layer over the open-source Mole CLI</string>
+    <string>SparkClean is distributed under GNU GPL version 3. See GPL-3.0.txt and THIRD_PARTY_NOTICES.txt.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>CFBundleDevelopmentRegion</key>
@@ -34,8 +34,8 @@
         <false/>
     </dict>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Mole reads your login items so the Apps → Startup pane can show what launches when you log in. Nothing is modified without your action.</string>
+    <string>SparkClean reads your login items so the Apps → Startup pane can show what launches when you log in. Nothing is modified without your action.</string>
     <key>NSLocationUsageDescription</key>
-    <string>Mole never uses your location.</string>
+    <string>SparkClean never uses your location.</string>
 </dict>
 </plist>

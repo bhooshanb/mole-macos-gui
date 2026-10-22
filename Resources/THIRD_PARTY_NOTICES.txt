@@ -1,0 +1,13 @@
+SparkClean for macOS — license and notices
+
+SparkClean is distributed under the GNU General Public License, version 3.
+Copyright (C) 2026 Silverstone Labs. See COPYRIGHT.txt.
+The complete license text is in GPL-3.0.txt.
+
+SparkClean source code:
+https://github.com/bhooshanb/mole-macos-gui
+
+This application uses a separately installed command-line program and does not
+bundle that program by default. The separate CLI is licensed under GPL-3.0;
+its source, license, and trademark notices are available at:
+https://github.com/tw93/Mole

@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:molemac}",
+            "name": "Debug SparkClean",
+            "target": "SparkClean",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug SparkClean"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:molemac}",
+            "name": "Release SparkClean",
+            "target": "SparkClean",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release SparkClean"
+        }
+    ]
+}

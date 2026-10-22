@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Mole",
+    name: "SparkClean",
     platforms: [.macOS(.v14)],
     dependencies: [
         // Swift Testing is bundled with Xcode 16+; pinned here so the package
@@ -11,17 +11,17 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "Mole",
-            path: "Sources/MoleApp",
+            name: "SparkClean",
+            path: "Sources/SparkCleanApp",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "MoleTests",
+            name: "SparkCleanTests",
             dependencies: [
-                "Mole",
+                "SparkClean",
                 .product(name: "Testing", package: "swift-testing"),
             ],
-            path: "Tests/MoleTests",
+            path: "Tests/SparkCleanTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

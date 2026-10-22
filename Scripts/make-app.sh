@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generates the app icon, then assembles Mole.app.
+# Generates the app icon, then assembles SparkClean.app.
 # Usage: ./Scripts/make-app.sh [--universal]
 set -euo pipefail
 cd "$(dirname "$0")/.."
