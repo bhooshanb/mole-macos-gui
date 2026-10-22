@@ -94,7 +94,7 @@ struct CleanPreviewListTests {
 struct SparkCleanUserErrorTests {
     @Test func errorTitlesAndRecovery() {
         let missing = SparkCleanUserError(kind: .cliMissing)
-        #expect(missing.title == "Mole CLI not found")
+        #expect(missing.title == "Command-line tool not found")
         #expect(missing.recoverySuggestion.contains("brew install mole"))
 
         let permission = SparkCleanUserError(kind: .permissionDenied(path: "/private/var"))

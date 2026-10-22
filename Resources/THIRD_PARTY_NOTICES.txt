@@ -8,6 +8,6 @@ SparkClean source code:
 https://github.com/bhooshanb/mole-macos-gui
 
 This application uses a separately installed command-line program and does not
-bundle that program by default. The separate CLI is licensed under GPL-3.0;
+bundle that program. The separate CLI is licensed under GPL-3.0;
 its source, license, and trademark notices are available at:
 https://github.com/tw93/Mole

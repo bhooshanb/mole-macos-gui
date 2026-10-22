@@ -14,7 +14,7 @@
 │   Clean · Apps · Optimize · Analyze · Status · MenuBar       │
 ├──────────────────────────────────────────────────────────────┤
 │ SparkClean Engine Bridge                                    │
-│   SparkCleanLocator   → find `mo` (override/bundle/paths/PATH) │
+│   SparkCleanLocator   → find `mo` (override/Homebrew/PATH)    │
 │   SparkCleanClient    → typed API: cleanDryRun/clean,          │
 │                      appInventory/uninstallPlan/uninstall,   │
 │                      optimizeDryRun/optimize, analyze,       │

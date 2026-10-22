@@ -34,13 +34,13 @@ into a premium Mac utility, branded **SparkClean**: **Clean**, **Apps**, **Optim
 
 - macOS 14 (Sonoma) or newer
 - Swift 6 toolchain (Xcode 16+, or CommandLineTools with `swift build`)
-- The compatible command-line utility installed:
-  `brew install mole` (or the install script). The app discovers `mo` at:
+- The compatible command-line utility installed via Homebrew:
+  `brew install mole` (or the official install script). The app does **not**
+  bundle the CLI; it relies on the installed one and discovers `mo` at:
   1. Settings → Advanced → CLI path override
-  2. `SparkClean.app/Contents/Resources/mole-cli/mole` (bundled copy, optional)
-  3. `/usr/local/bin/mo`, `/opt/homebrew/bin/mo`, `~/.local/bin/mo`
-  4. Repository checkouts (dev convenience)
-  5. `PATH`
+  2. `/usr/local/bin/mo`, `/opt/homebrew/bin/mo`, `~/.local/bin/mo`
+  3. Repository checkouts (dev convenience)
+  4. `PATH`
 
 ## Development
 
@@ -92,16 +92,6 @@ xcrun notarytool submit SparkClean.dmg --keychain-profile mole --wait
 xcrun stapler staple SparkClean.dmg
 ```
 
-### Bundling the CLI (optional)
-
-To make the app self-contained, copy the complete command-line utility distribution (the `mo`/`mole` entrypoints, its `bin/` and `lib/` directories, and its original `LICENSE`, `TRADEMARK.md`, and other notices) to:
-
-```
-SparkClean.app/Contents/Resources/mole-cli/
-```
-
-The locator picks this up automatically. Keep the corresponding source available to recipients and preserve the included license and trademark notices. Note that `mo update` would update the system install, not the bundle — prefer the system CLI for most users.
-
 ## Permissions
 
 - The app runs **never as root**, matching the CLI's own model.
@@ -135,7 +125,6 @@ Sources/SparkCleanApp/
 Resources/                         Info.plist, entitlements, generated icon
 Scripts/                           build-app.sh, make-icon.swift, make-app.sh
 Tests/SparkCleanTests/             Unit + live integration tests
-mole-cli/                          upstream Mole clone (reference; not built here)
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.

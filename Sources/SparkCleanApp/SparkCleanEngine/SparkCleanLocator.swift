@@ -8,7 +8,6 @@ struct SparkCleanLocatorResult: Equatable, Sendable {
 
     enum DiscoverySource: String, Equatable, Sendable {
         case appBundleOverride = "app-bundle-override"
-        case bundled = "bundled"
         case usrLocalBin = "/usr/local/bin"
         case optHomebrewBin = "/opt/homebrew/bin"
         case localBin = "~/.local/bin"
@@ -21,21 +20,13 @@ enum SparkCleanLocatorError: Error, Equatable {
     case notFound
 }
 
-/// Locates the real `mo` executable.
-/// Order: explicit user override → bundled copy → well-known install paths →
+/// Locates the real `mo` executable. The app never bundles the CLI; it relies
+/// on a Homebrew (or other) installation.
+/// Order: explicit user override → Homebrew/known install paths →
 /// repository checkout → user PATH.
 struct SparkCleanLocator {
     /// Override set from Settings (Advanced → Mole CLI path).
     var customPath: String?
-
-    /// Bundled fallback: a copy of `mo` (with its bin/ + lib/ trees) placed in
-    /// SparkClean.app/Contents/Resources/mole-cli. Optional; the installed CLI is the
-    /// primary integration target.
-    var bundledCLIResourceURL: URL? = {
-        guard let resources = Bundle.main.resourceURL else { return nil }
-        let candidate = resources.appendingPathComponent("mole-cli/mole")
-        return FileManager.default.isExecutableFile(atPath: candidate.path) ? candidate : nil
-    }()
 
     static let wellKnownPaths: [String] = [
         "/usr/local/bin/mo",
@@ -54,19 +45,13 @@ struct SparkCleanLocator {
             }
         }
 
-        // 2. Bundled copy.
-        if let bundledCLIResourceURL {
-            return SparkCleanLocatorResult(
-                url: bundledCLIResourceURL, version: nil, source: .bundled)
-        }
-
-        // 3. Well-known locations.
+        // 2. Well-known locations (Homebrew's /usr/local and /opt/homebrew first).
         for path in Self.wellKnownPaths where FileManager.default.isExecutableFile(atPath: path) {
             return SparkCleanLocatorResult(
                 url: URL(fileURLWithPath: path), version: nil, source: .init(rawValue: path) ?? .path)
         }
 
-        // 4. Repository checkout (development).
+        // 3. Repository checkout (development).
         let devCandidates = [
             NSString(string: "~/Documents/molemac/mole-cli/mole").expandingTildeInPath,
             NSString(string: "~/Mole/mole").expandingTildeInPath,
@@ -77,7 +62,7 @@ struct SparkCleanLocator {
                 url: URL(fileURLWithPath: path), version: nil, source: .repositoryCheckout)
         }
 
-        // 5. PATH lookup.
+        // 4. PATH lookup.
         if let fromPATH = Self.findInPATH() {
             return SparkCleanLocatorResult(url: fromPATH, version: nil, source: .path)
         }
